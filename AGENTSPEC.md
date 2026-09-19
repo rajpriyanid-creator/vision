@@ -305,12 +305,12 @@ EVALUATE
              │     VALIDATE_HYPOTHESIS     │
              │             │               │
              │             ▼               │
-             │      SELECT_RESOURCE        │
-             │             │               │
-             │             ▼               │
+             │      SELECT_RESOURCE ◀──────┼────────┐
+             │             │               │        │
+             │             ▼               │        │
              │   RESOURCE_CROSS_CHECK ─────┼─── off-target (retry < 2)
-             │             │               │         │
-             │         relevant            └─────────┘
+             │             │               │
+             │         relevant            │
              │             │
              │             ▼
              │      RETEACH_PREREQ         │
