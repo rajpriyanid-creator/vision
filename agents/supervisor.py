@@ -26,19 +26,31 @@ class SupervisorAgent:
     SYSTEM_PROMPT_CURRICULUM = """You are a Principal Computer Science Curriculum Architect and Assessment Engineer.
 
 Your domain is STRICTLY COMPUTER SCIENCE & SOFTWARE DEVELOPMENT:
-- Data Structures & Algorithms (Linked Lists, Stacks, Queues, Trees, Graphs, Hash Tables, Sorting, Recursion, Dynamic Programming)
+- Data Structures & Algorithms (Arrays, Linked Lists, Stacks, Queues, Trees, Graphs, Hash Tables, Heaps, Sorting, Recursion, Dynamic Programming)
 - Programming Languages (C++, Java, Python, C, JavaScript, TypeScript, Go, Rust)
 - Web & App Frameworks (React, Angular, Vue, Node.js, Next.js, Django, Spring Boot)
 - Core Systems (Pointers, Memory Allocation, Concurrency, Databases, OS, Networking)
 
-Given a CS subject and a target concept, determine:
-1. "Are there any direct prerequisites for this concept?"
-   - Foundational concepts (e.g. Arrays, Strings, Variables, Basic Arithmetic) have ZERO prerequisites -> Return empty list `[]`.
-   - Other concepts have direct prerequisites (e.g. Binary Trees -> Linked Lists; Linked Lists -> Pointers; Stacks -> Arrays).
+Given a target concept, determine:
+1. DIRECT PREREQUISITES (Level 1 only, no deeper prerequisites):
+   - For Foundational Concepts (e.g. Arrays, Strings, Variables, Basic Syntax, Arithmetic) -> Return empty list `[]` (ZERO prerequisites).
+   - For other CS concepts, identify the exact direct prerequisite data structure or programming concept.
+     EXAMPLES OF EXACT DIRECT PREREQUISITES:
+     * Graph / Graphs -> Arrays (or Lists for Adjacency Matrix / Adjacency List representation)
+     * Binary Trees / BST -> Linked Lists (for linked node pointers)
+     * Linked Lists -> Pointers & References (or Memory Addresses)
+     * Stacks / Queues -> Arrays (or Lists)
+     * Heaps / Priority Queues -> Arrays
+     * Hash Tables / Hashing -> Arrays
+     * Dynamic Programming -> Recursion
+     * Recursion -> Call Stack & Functions
+     * React Hooks / Component State -> JavaScript Closures & Functions
+   - CRITICAL: NEVER use placeholder phrases like "${concept} Foundations", "${concept} Basics", "Fundamentals", or "Core Primitives". You must output the REAL, EXACT computer science prerequisite name (e.g. "Arrays", "Linked Lists", "Pointers", "Recursion", etc.).
 
 2. CRITICAL DEPTH LIMIT (Strictly Level 1 only!):
    - You MUST NOT give prerequisites of level more than 1.
    - For example: For Binary Trees, the prerequisite is Linked Lists. DO NOT include Pointers (which is a prerequisite of Linked Lists).
+   - For Graphs, the prerequisite is Arrays. DO NOT include Pointers or Bits.
    - Every prerequisite node MUST have an empty list `[]`.
    - There must NEVER be any edge that is not directly connected to the main requested target concept.
 
@@ -54,7 +66,7 @@ Return ONLY a JSON object with this exact structure:
   },
   "concept_titles": {
     "target_id": "Target Concept Name",
-    "direct_prereq_1": "Human-readable Direct Prerequisite Name"
+    "direct_prereq_1": "Exact CS Prerequisite Name (e.g. Arrays, Linked Lists, Pointers)"
   },
   "questions": [
     {
@@ -93,6 +105,7 @@ Return ONLY a JSON object with this exact structure:
 Rules:
 - Strictly Level 1 prerequisites only. Zero indirect or transitive prerequisites.
 - Questions must be 100% specific to the target concept.
+- NEVER use generic labels like 'Foundations' or 'Basics'. Use exact CS terms.
 - Use clean snake_case for concept IDs."""
 
     SYSTEM_PROMPT_PREREQ_QUIZ = """You are the VISION Prerequisite Diagnostic Examiner for Computer Science.
@@ -134,12 +147,17 @@ Return JSON only in this exact structure:
         curriculum_questions: List[Dict[str, Any]] = []
 
         if self.llm.is_live:
-            user_prompt = f"""Computer Science Subject/Domain: {subject}
-Target Programming Concept: {target_concept}
+            user_prompt = f"""Computer Science Domain: {subject or 'Data Structures & Algorithms'}
+Target Concept Name: {target_concept}
+Target Concept ID (use this exact key): {target_id}
 
 For this topic "{target_concept}", determine its direct prerequisites (Level 1 only, no deeper prerequisites).
-Generate the Level-1 prerequisite graph and 3-4 targeted assessment questions.
-Return JSON only."""
+Rules:
+1. Foundational concepts (e.g. Arrays, Strings, Variables, Primitive Types) have ZERO prerequisites -> Return empty list `[]`.
+2. For concepts with prerequisites, provide the EXACT CS prerequisite (e.g., Graph -> Arrays, Binary Trees -> Linked Lists, Linked Lists -> Pointers, Stack -> Arrays, Dynamic Programming -> Recursion).
+3. NEVER use vague labels like "{target_concept} Foundations" or "Basics".
+4. Max depth is strictly 1: every prerequisite node must have an empty dependency list `[]`.
+5. Return JSON only with key "{target_id}"."""
             try:
                 result = self.llm.escalate(self.SYSTEM_PROMPT_CURRICULUM, user_prompt, max_tokens=1536)
                 if isinstance(result, str):
@@ -151,16 +169,36 @@ Return JSON only."""
                 course_name = result.get("course_name", subject)
                 curriculum_questions = result.get("questions", [])
 
-                # Enforce Strict Level 1 Rule: only direct prerequisites of target_id, all prereq nodes have []
-                direct_prereqs = raw_dep_graph.get(target_id, [])
-                dep_graph: Dict[str, List[str]] = {target_id: direct_prereqs}
-                concepts = [target_id]
-                concept_titles = {target_id: raw_concept_titles.get(target_id, target_concept)}
+                # Flexible key resolution for target_id
+                target_key = target_id
+                if target_key not in raw_dep_graph:
+                    for k in raw_dep_graph.keys():
+                        if _to_id(k) == target_id or target_id in _to_id(k) or _to_id(k) in target_id:
+                            target_key = k
+                            break
 
+                direct_prereqs = raw_dep_graph.get(target_key, [])
+                
+                # Sanitize: filter out any invalid or self-referential or generic placeholders
+                cleaned_prereqs: List[str] = []
                 for p in direct_prereqs:
-                    dep_graph[p] = []  # No deeper levels!
+                    p_id = _to_id(p)
+                    if (p_id != target_id and 
+                        not p_id.endswith("_foundations") and 
+                        not p_id.endswith("_foundation") and 
+                        not p_id.endswith("_basics") and 
+                        p_id != f"{target_id}_fundamentals"):
+                        cleaned_prereqs.append(p_id)
+
+                dep_graph: Dict[str, List[str]] = {target_id: cleaned_prereqs}
+                concepts = [target_id]
+                concept_titles = {target_id: raw_concept_titles.get(target_key, target_concept)}
+
+                for p in cleaned_prereqs:
+                    dep_graph[p] = []  # Strictly Level 1
                     concepts.append(p)
-                    concept_titles[p] = raw_concept_titles.get(p, p.replace("_", " ").title())
+                    title = raw_concept_titles.get(p) or raw_concept_titles.get(p.replace("_", " ")) or p.replace("_", " ").title()
+                    concept_titles[p] = title
 
                 return CourseContext(
                     course_id=course_id,
@@ -188,7 +226,7 @@ Return JSON only."""
         c_lower = target_concept.lower()
 
         # 1. Foundational concepts: ZERO prerequisites
-        if (target_id in {"array", "arrays", "string", "strings", "variables", "basic_syntax"} or
+        if (target_id in {"array", "arrays", "string", "strings", "variables", "basic_syntax", "primitive_types"} or
             "array" == c_lower or "arrays" == c_lower or "string" == c_lower or "strings" == c_lower):
             dep_graph = {target_id: []}
             concept_titles = {target_id: target_concept.title()}
@@ -204,11 +242,76 @@ Return JSON only."""
                     ],
                     "correct_index": 0,
                     "correct_answer": "Contiguous indexed sequential storage with O(1) random access by index",
-                    "explanation": "Arrays/strings store homogeneous elements in contiguous memory locations, allowing O(1) direct index arithmetic."
+                    "explanation": "Arrays/strings store elements in contiguous memory locations, enabling O(1) direct index address computation."
+                },
+                {
+                    "id": 2,
+                    "question": "What is the time complexity of inserting an element at the beginning of a fixed-size contiguous array of size N?",
+                    "options": [
+                        "O(N) linear time due to shifting existing elements",
+                        "O(1) constant time",
+                        "O(log N) logarithmic time",
+                        "O(N^2) quadratic time"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "O(N) linear time due to shifting existing elements",
+                    "explanation": "Inserting at index 0 requires shifting all N elements right by one position."
                 }
             ]
 
-        # 2. Binary Tree / Trees: Level 1 prereq is Linked List only (NOT pointers)
+        # 2. Graph / Graphs: Level 1 prereq is Arrays (Adjacency Matrix / Adjacency List)
+        elif "graph" in target_id or "graph" in c_lower:
+            dep_graph = {
+                target_id: ["arrays"],
+                "arrays": []
+            }
+            concept_titles = {
+                target_id: "Graph Data Structure",
+                "arrays": "Arrays & Lists"
+            }
+            questions = [
+                {
+                    "id": 1,
+                    "question": "In Graph representation, what is the primary space complexity difference between an Adjacency Matrix and an Adjacency List for a graph with V vertices and E edges?",
+                    "options": [
+                        "Adjacency Matrix requires O(V^2) space; Adjacency List requires O(V + E) space",
+                        "Adjacency Matrix requires O(V + E) space; Adjacency List requires O(V^2) space",
+                        "Both require strictly O(E^2) space",
+                        "Adjacency List requires O(1) auxiliary memory"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "Adjacency Matrix requires O(V^2) space; Adjacency List requires O(V + E) space",
+                    "explanation": "An Adjacency Matrix uses a 2D V x V array taking O(V^2) memory, whereas an Adjacency List only allocates entries for actual existing edges O(V + E), which is far more memory-efficient for sparse graphs."
+                },
+                {
+                    "id": 2,
+                    "question": "Which data structure is typically utilized to perform Breadth-First Search (BFS) graph traversal?",
+                    "options": [
+                        "Queue (FIFO)",
+                        "Stack (LIFO)",
+                        "Binary Max Heap",
+                        "Hash Set only"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "Queue (FIFO)",
+                    "explanation": "BFS explores vertices level by level, using a Queue (FIFO) to visit adjacent neighbors before moving to the next distance layer."
+                },
+                {
+                    "id": 3,
+                    "question": "What is the time complexity of checking if an edge exists between vertex u and vertex v in an Adjacency Matrix of size V?",
+                    "options": [
+                        "O(1) constant time direct matrix lookup matrix[u][v]",
+                        "O(V) linear search across the row",
+                        "O(E) edge traversal",
+                        "O(log V) binary search"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "O(1) constant time direct matrix lookup matrix[u][v]",
+                    "explanation": "Because an adjacency matrix is a 2D array, accessing matrix[u][v] is a direct O(1) index calculation."
+                }
+            ]
+
+        # 3. Binary Tree / Trees / BST: Level 1 prereq is Linked List only (NOT pointers)
         elif "tree" in target_id or "tree" in c_lower:
             dep_graph = {
                 target_id: ["linked_list"],
@@ -231,10 +334,23 @@ Return JSON only."""
                     "correct_index": 0,
                     "correct_answer": "A Binary Tree node has two child pointers (left & right) rather than a single next pointer",
                     "explanation": "Each binary tree node extends linked node structures by maintaining up to two branch references (left and right)."
+                },
+                {
+                    "id": 2,
+                    "question": "In a balanced Binary Search Tree (BST) with N nodes, what is the average time complexity for searching a key?",
+                    "options": [
+                        "O(log N)",
+                        "O(N)",
+                        "O(1)",
+                        "O(N log N)"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "O(log N)",
+                    "explanation": "Each comparison in a balanced BST halves the search space, yielding O(log N) average time."
                 }
             ]
 
-        # 3. Linked List: Level 1 prereq is Pointers & References only
+        # 4. Linked List: Level 1 prereq is Pointers & References only
         elif "linked_list" in target_id or "linked list" in c_lower:
             dep_graph = {
                 "linked_list": ["pointers_and_references"],
@@ -273,7 +389,111 @@ Return JSON only."""
                 }
             ]
 
-        # 4. Stack: Level 1 prereq is Arrays / Sequential Storage
+        # 5. Heap / Priority Queue: Level 1 prereq is Arrays
+        elif "heap" in target_id or "heap" in c_lower or "priority_queue" in target_id:
+            dep_graph = {
+                target_id: ["arrays"],
+                "arrays": []
+            }
+            concept_titles = {
+                target_id: "Binary Heap / Priority Queue",
+                "arrays": "Arrays & Index Storage"
+            }
+            questions = [
+                {
+                    "id": 1,
+                    "question": "In an array-based representation of a 0-indexed Binary Max Heap, what is the index of the parent of a node at index i?",
+                    "options": [
+                        "(i - 1) // 2",
+                        "2 * i + 1",
+                        "2 * i + 2",
+                        "i // 2"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "(i - 1) // 2",
+                    "explanation": "In a 0-indexed complete binary tree array, the parent of index i is at (i - 1) // 2, left child is at 2i + 1, and right child is at 2i + 2."
+                }
+            ]
+
+        # 6. Hash Table / Hashing: Level 1 prereq is Arrays
+        elif "hash" in target_id or "hash" in c_lower:
+            dep_graph = {
+                target_id: ["arrays"],
+                "arrays": []
+            }
+            concept_titles = {
+                target_id: "Hash Table & Hashing",
+                "arrays": "Arrays & Memory Indexing"
+            }
+            questions = [
+                {
+                    "id": 1,
+                    "question": "What is the expected average-case time complexity of lookup, insert, and delete operations in a Hash Table?",
+                    "options": [
+                        "O(1)",
+                        "O(log N)",
+                        "O(N)",
+                        "O(N log N)"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "O(1)",
+                    "explanation": "A good hash function distributes keys uniformly across array buckets, yielding O(1) average-case time."
+                }
+            ]
+
+        # 7. Dynamic Programming: Level 1 prereq is Recursion
+        elif "dynamic_programming" in target_id or "dp" in target_id or "dynamic programming" in c_lower:
+            dep_graph = {
+                target_id: ["recursion"],
+                "recursion": []
+            }
+            concept_titles = {
+                target_id: "Dynamic Programming",
+                "recursion": "Recursion & Subproblems"
+            }
+            questions = [
+                {
+                    "id": 1,
+                    "question": "What two key properties must a problem exhibit for Dynamic Programming to be applicable?",
+                    "options": [
+                        "Optimal Substructure and Overlapping Subproblems",
+                        "Greedy Choice Property and Infinite Recursion",
+                        "Linear Independence and Matrix Invertibility",
+                        "Strict Monotonicity and Fixed Memory Allocation"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "Optimal Substructure and Overlapping Subproblems",
+                    "explanation": "DP optimizes solutions by memoizing or tabulating solutions to overlapping subproblems that compose an optimal global solution."
+                }
+            ]
+
+        # 8. Recursion: Level 1 prereq is Call Stack & Functions
+        elif "recursion" in target_id or "recursion" in c_lower:
+            dep_graph = {
+                target_id: ["call_stack_and_functions"],
+                "call_stack_and_functions": []
+            }
+            concept_titles = {
+                target_id: "Recursion",
+                "call_stack_and_functions": "Call Stack & Functions"
+            }
+            questions = [
+                {
+                    "id": 1,
+                    "question": "What is the consequence of omitting a base case in a recursive function?",
+                    "options": [
+                        "Unbounded stack frame growth leading to a Stack Overflow runtime exception",
+                        "Automatic garbage collection of all global variables",
+                        "Immediate compilation failure with static analysis warnings only",
+                        "Reversal of the input data stream"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "Unbounded stack frame growth leading to a Stack Overflow runtime exception",
+                    "explanation": "Without a terminating base case, each recursive invocation pushes a new stack frame until available call stack memory is exhausted."
+                }
+            ]
+
+        # 9. Stack: Level 1 prereq is Arrays
         elif "stack" in target_id or "stack" in c_lower:
             dep_graph = {
                 "stack": ["arrays"],
@@ -299,7 +519,7 @@ Return JSON only."""
                 }
             ]
 
-        # 5. Queue: Level 1 prereq is Arrays / Sequential Storage
+        # 10. Queue: Level 1 prereq is Arrays
         elif "queue" in target_id or "queue" in c_lower:
             dep_graph = {
                 "queue": ["arrays"],
@@ -325,15 +545,15 @@ Return JSON only."""
                 }
             ]
 
-        # 6. React Hooks / State: Level 1 prereq is JavaScript Functions & Closures
+        # 11. React Hooks / State: Level 1 prereq is JavaScript Closures & Functions
         elif "react" in target_id or "react" in c_lower:
             dep_graph = {
-                "react_hooks": ["javascript_functions_and_closures"],
-                "javascript_functions_and_closures": []
+                "react_hooks": ["javascript_closures_and_functions"],
+                "javascript_closures_and_functions": []
             }
             concept_titles = {
                 "react_hooks": "React Hooks & Component State",
-                "javascript_functions_and_closures": "JavaScript Functions & Closures"
+                "javascript_closures_and_functions": "JavaScript Closures & Functions"
             }
             questions = [
                 {
@@ -351,16 +571,15 @@ Return JSON only."""
                 }
             ]
 
-        # 7. Generic CS Concept: 1 direct Level-1 prerequisite
+        # 12. General Fallback: Concrete CS concepts (Arrays/Lists) — NEVER generic "Foundations"
         else:
-            p1 = f"{target_id}_fundamentals"
             dep_graph = {
-                target_id: [p1],
-                p1: []
+                target_id: ["arrays"],
+                "arrays": []
             }
             concept_titles = {
-                target_id: target_concept,
-                p1: f"{target_concept} Foundations"
+                target_id: target_concept.title(),
+                "arrays": "Arrays & Data Types"
             }
             questions = [
                 {
