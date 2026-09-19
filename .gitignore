@@ -10,3 +10,4 @@ node_modules/
 evidence/raw/
 vision.db
 frontend/dist/
+prompts/

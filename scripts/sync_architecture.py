@@ -34,12 +34,12 @@ def definitions(path: Path) -> dict[str, int]:
                     if isinstance(t, ast.Name):
                         out.setdefault(t.id, child.lineno)
 
-    walk(ast.parse(path.read_text()))
+    walk(ast.parse(path.read_text(encoding="utf-8")))
     return out
 
 
 def main(write: bool) -> int:
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     cache: dict[str, dict[str, int]] = {}
     moved, missing = [], []
 
@@ -69,7 +69,7 @@ def main(write: bool) -> int:
         print("  all references current")
 
     if write and moved:
-        DOC.write_text(updated)
+        DOC.write_text(updated, encoding="utf-8")
         print(f"\nupdated {len(moved)} reference(s) in {DOC.relative_to(ROOT)}")
     elif moved:
         print("\nrun with --write to apply")

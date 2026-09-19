@@ -27,7 +27,7 @@ TOLERANCE = 3          # a decorator or a comment above the def is not a failure
 
 def definitions(path: Path) -> dict[str, int]:
     """Every class, function and module-level constant, with its line."""
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     out: dict[str, int] = {}
 
     def walk(node, prefix=""):
@@ -48,7 +48,7 @@ def definitions(path: Path) -> dict[str, int]:
 
 def references():
     assert DOC.exists(), "docs/ARCHITECTURE.md is missing"
-    return [(m["file"], int(m["line"]), m["symbol"]) for m in REF.finditer(DOC.read_text())]
+    return [(m["file"], int(m["line"]), m["symbol"]) for m in REF.finditer(DOC.read_text(encoding="utf-8"))]
 
 
 def test_the_document_actually_has_references():
@@ -56,7 +56,7 @@ def test_the_document_actually_has_references():
     assert len(refs) >= 20, f"only found {len(refs)} code references - has the format changed?"
 
 
-@pytest.mark.parametrize("ref", references(), ids=lambda r: f"{r[0]}:{r[1]}:{r[2]}")
+@pytest.mark.parametrize("ref", references(), ids=lambda r: f"{r[0]}:{r[1]}:{r[2]}" if isinstance(r, (tuple, list)) and len(r) >= 3 else str(r))
 def test_reference_still_points_at_its_symbol(ref):
     filename, line, symbol = ref
     path = ROOT / filename
