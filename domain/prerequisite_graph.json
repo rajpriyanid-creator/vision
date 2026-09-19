@@ -6,24 +6,36 @@
       "id": "binary_tree_inorder_traversal",
       "title": "Binary Tree Inorder Traversal",
       "description": "Traverse left subtree, visit node, traverse right subtree.",
-      "prerequisites": ["traversal_ordering_rules", "recursion"]
+      "prerequisites": ["tree_traversal_order", "recursion"]
     },
     {
-      "id": "traversal_ordering_rules",
-      "title": "Traversal Ordering Rules",
-      "description": "Understanding L-N-R sequence relative to root.",
+      "id": "tree_traversal_order",
+      "title": "Tree Traversal Ordering Rules",
+      "description": "Understanding Left-Node-Right output sequence relative to root.",
       "prerequisites": []
     },
     {
       "id": "recursion",
       "title": "Recursion",
-      "description": "Function calling itself on subproblems.",
-      "prerequisites": ["call_stack_reasoning"]
+      "description": "Function self-calls on subproblems with termination base cases.",
+      "prerequisites": ["base_case_evaluation", "call_stack_reasoning"]
+    },
+    {
+      "id": "base_case_evaluation",
+      "title": "Base-Case Evaluation",
+      "description": "NULL node pointer checks and base-case termination rules.",
+      "prerequisites": []
     },
     {
       "id": "call_stack_reasoning",
       "title": "Call Stack Reasoning",
-      "description": "Call stack frames, base cases, and return unwinding.",
+      "description": "Stack frame push/pop operations, execution suspension, and return unwinding.",
+      "prerequisites": []
+    },
+    {
+      "id": "array_traversal",
+      "title": "Array Traversal",
+      "description": "Linear array iteration. Unconnected concept used for prerequisite edge rejection validation.",
       "prerequisites": []
     }
   ]
