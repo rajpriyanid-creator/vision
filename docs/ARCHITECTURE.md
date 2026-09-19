@@ -272,7 +272,7 @@ This section maintains live symbol-to-line references for automated verification
 | Component / Module | Symbol Reference | Description |
 |---|---|---|
 | Workflow Controller | `slice/controller.py:32` - `WorkflowController` | Deterministic authority & state transitions |
-| State Manager | `slice/state_manager.py:165` - `StateManager` | In-memory student state & history persistence |
+| State Manager | `slice/state_manager.py:169` - `StateManager` | In-memory student state & history persistence |
 | Mongo State Manager | `slice/mongo_state_manager.py:20` - `MongoStateManager` | MongoDB persistent learner state manager |
 | LLM Client | `slice/llm_client.py:30` - `LLMClient` | Multi-model Gemini client & fallback escalation |
 | Validator | `slice/validator.py:5` - `Validator` | Edge & output constraint validator |

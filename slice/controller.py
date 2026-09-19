@@ -527,18 +527,35 @@ class WorkflowController:
     # ──────────────────────────── Helpers ────────────────────────────────────
 
     def _sanitize_exercise_for_client(self, exercise_dict: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Removes answer keys or hidden secrets before returning exercise payloads to the browser."""
+        """Removes answer keys or hidden secrets and adds frontend alias keys."""
         if not exercise_dict:
             return None
         clean = dict(exercise_dict)
         clean.pop("expected_answer_hint", None)
+        clean["prompt"] = clean.get("prompt") or clean.get("question_text", "")
+        clean["format"] = clean.get("format") or clean.get("question_format", "free_text")
+        clean["options"] = clean.get("options") or clean.get("mcq_options", [])
+        clean["starter_code"] = clean.get("starter_code") or clean.get("code_starter", "")
+        return clean
+
+    def _sanitize_teaching_for_client(self, teaching_dict: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Adds frontend alias keys for teaching action payload."""
+        if not teaching_dict:
+            return None
+        clean = dict(teaching_dict)
+        clean["explanation"] = clean.get("explanation") or clean.get("explanation_text", "")
         return clean
 
     def _title(self, concept_id: str, data: dict) -> str:
         return data.get("concept_titles", {}).get(concept_id, concept_id.replace("_", " ").title())
 
     def _resp(self, run_id: str, state: str, session: StudySession, **kwargs) -> Dict[str, Any]:
-        return {"run_id": run_id, "current_state": state, "session": session.model_dump(), **kwargs}
+        resp = {"run_id": run_id, "current_state": state, "session": session.model_dump(), **kwargs}
+        if "teaching_action" in resp and isinstance(resp["teaching_action"], dict):
+            resp["teaching_action"] = self._sanitize_teaching_for_client(resp["teaching_action"])
+        if "exercise" in resp and isinstance(resp["exercise"], dict):
+            resp["exercise"] = self._sanitize_exercise_for_client(resp["exercise"])
+        return resp
 
     def _event(self, run_id: str, phase: str, actor: str, action: str, result: str, reason: str):
         self.state_manager.record_event({

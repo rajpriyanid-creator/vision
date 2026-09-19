@@ -36,9 +36,10 @@ export const ExerciseRenderer: React.FC<ExerciseRendererProps> = ({
     );
   }
 
-  const format = (exercise.format || 'mcq').toLowerCase();
-  const prompt = exercise.prompt || 'Evaluate the following scenario:';
-  const options = exercise.options || [];
+  const format = (exercise.format || exercise.question_format || 'mcq').toLowerCase();
+  const prompt = exercise.prompt || exercise.question_text || 'Evaluate the following scenario:';
+  const options = exercise.options || exercise.mcq_options || [];
+  const starterCode = exercise.starter_code || exercise.code_starter || '';
   const difficulty = exercise.difficulty;
   const conceptTitle = exercise.concept_title || recheckConcept || session?.target_concept || 'Concept';
 
@@ -136,7 +137,7 @@ export const ExerciseRenderer: React.FC<ExerciseRendererProps> = ({
               Select the correct statement:
             </span>
             <div className="flex flex-col gap-2.5">
-              {options.map((option, idx) => {
+              {options.map((option: string, idx: number) => {
                 const isSelected = selectedOption === option;
                 return (
                   <button

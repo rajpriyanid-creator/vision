@@ -88,6 +88,15 @@ def _public_session(run_id: str) -> dict[str, Any]:
     if exercise and isinstance(exercise, dict):
         exercise = dict(exercise)
         exercise.pop("expected_answer_hint", None)
+        exercise["prompt"] = exercise.get("prompt") or exercise.get("question_text", "")
+        exercise["format"] = exercise.get("format") or exercise.get("question_format", "free_text")
+        exercise["options"] = exercise.get("options") or exercise.get("mcq_options", [])
+        exercise["starter_code"] = exercise.get("starter_code") or exercise.get("code_starter", "")
+
+    teaching_action = raw.get("teaching_action")
+    if teaching_action and isinstance(teaching_action, dict):
+        teaching_action = dict(teaching_action)
+        teaching_action["explanation"] = teaching_action.get("explanation") or teaching_action.get("explanation_text", "")
 
     response = {
         "run_id": run_id,
@@ -100,7 +109,7 @@ def _public_session(run_id: str) -> dict[str, Any]:
         "dag": raw.get("dag", {}),
         "concept_titles": raw.get("concept_titles", {}),
         "exercise": exercise,
-        "teaching_action": raw.get("teaching_action"),
+        "teaching_action": teaching_action,
         "resource_selection": raw.get("resource_selection"),
         "human_question": raw.get("human_question"),
         "history": raw.get("history", []),

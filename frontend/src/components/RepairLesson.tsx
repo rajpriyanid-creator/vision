@@ -15,7 +15,7 @@ export const RepairLesson: React.FC = () => {
   const candidatePrereq = session.candidate_prerequisite || 'Foundational Prerequisite';
   const targetConcept = session.target_concept || 'Target Concept';
 
-  const explanation = teachingAction?.explanation || 'Remediation lesson synthesized by the Tutor Agent to repair prerequisite foundation.';
+  const explanation = teachingAction?.explanation || teachingAction?.explanation_text || 'Remediation lesson synthesized by the Tutor Agent to repair prerequisite foundation.';
   const keyTakeaways = teachingAction?.key_takeaways || [];
   const codeExample = teachingAction?.code_example;
   const teachingMode = teachingAction?.teaching_mode || 'Prerequisite Repair Synthesis';

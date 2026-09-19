@@ -31,18 +31,23 @@ export interface ExerciseTestCase {
 export interface Exercise {
   exercise_id?: string;
   format?: 'mcq' | 'fill_in_blank' | 'free_text' | 'coding_problem' | string;
+  question_format?: string;
   prompt?: string;
+  question_text?: string;
   difficulty?: number | string;
   concept_id?: string;
   concept_title?: string;
   options?: string[];
+  mcq_options?: string[];
   starter_code?: string;
+  code_starter?: string;
   test_cases?: ExerciseTestCase[];
   metadata?: Record<string, any>;
 }
 
 export interface TeachingAction {
   explanation?: string;
+  explanation_text?: string;
   key_takeaways?: string[];
   code_example?: string;
   teaching_mode?: string;

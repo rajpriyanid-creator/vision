@@ -92,6 +92,10 @@ class TeachingAction(BaseModel):
     teaching_mode: str
     explanation_text: str
     evidence_ref: str
+    explanation: Optional[str] = None
+    key_takeaways: List[str] = Field(default_factory=list)
+    code_example: Optional[str] = None
+    pedagogy_rationale: Optional[str] = None
 
 
 class Exercise(BaseModel):
