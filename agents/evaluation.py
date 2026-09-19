@@ -1,62 +1,57 @@
-import os
-from typing import Optional
+"""
+VISION Evaluation Agent — Fully dynamic, open-domain.
+Zero hardcoded rubrics. Uses Gemini to grade any student answer on any subject.
+"""
+
+from __future__ import annotations
 from slice.state_manager import Evaluation, Attempt
-from slice.llm_client import UnifiedLLMClient
+from slice.llm_client import LLMClient
+
 
 class EvaluationAgent:
-    """Rubric-Based Evaluation Agent — Grades student answers using LLM against rubrics into demonstrated, unresolved, or uncertain."""
+    """
+    Rubric-Based Evaluation Agent.
+    Grades any student answer on any concept into:
+    - demonstrated: student clearly understands
+    - unresolved: student reveals a gap or misconception
+    - uncertain: ambiguous/vague — needs tie-breaker
+    """
 
-    def __init__(self, provider: Optional[str] = None):
-        self.llm = UnifiedLLMClient(provider=provider)
+    SYSTEM_PROMPT = """You are the VISION Evaluation Agent.
+
+Grade the student's answer to a conceptual question. Be fair but rigorous.
+Use exactly one of these statuses:
+- "demonstrated": the answer is correct or shows solid understanding
+- "unresolved": the answer is wrong, incomplete, or reveals a misconception  
+- "uncertain": the answer is ambiguous, too vague to classify, or needs clarification
+
+Respond with JSON only:
+{
+  "status": "demonstrated | unresolved | uncertain",
+  "reasoning": "<why you chose this status — what specifically was right or wrong>",
+  "next_recommendation": "<what should happen next educationally>"
+}"""
+
+    def __init__(self):
+        self.llm = LLMClient()
 
     def evaluate_attempt(self, attempt: Attempt) -> Evaluation:
-        """Evaluates student attempt against concept expectations using LLM reasoning."""
-        
-        system_prompt = (
-            "You are the Evaluation Agent of VISION. Grade the student's answer to a computer science question.\n"
-            "Classify status as exactly one of:\n"
-            "- 'demonstrated': student demonstrates correct understanding\n"
-            "- 'unresolved': student answer reveals a gap or misconception\n"
-            "- 'uncertain': student answer is ambiguous, vague, or incomplete needing tie-breaker\n\n"
-            "Return JSON with fields:\n"
-            "- status: 'demonstrated' | 'unresolved' | 'uncertain'\n"
-            "- reasoning: str\n"
-            "- next_recommendation: str"
-        )
+        user_prompt = f"""Concept being tested: {attempt.concept}
+Question asked: {attempt.question}
+Student's answer: {attempt.student_answer}
 
-        user_prompt = (
-            f"Concept: {attempt.concept}\n"
-            f"Question: {attempt.question}\n"
-            f"Student Answer: {attempt.student_answer}\n\n"
-            "Grade this response. Return JSON."
-        )
+Grade this response and return JSON."""
 
-        res_json = self.llm.generate_json(system_prompt, user_prompt)
-        status = res_json.get("status")
-        concept = attempt.concept
+        result = self.llm.chat_json(self.SYSTEM_PROMPT, user_prompt, max_tokens=512)
 
-        if status not in ["demonstrated", "unresolved", "uncertain"]:
-            answer = attempt.student_answer.strip().lower()
-            if concept == "binary_tree_inorder_traversal" and ("b, a, c" in answer or "b a c" in answer or "left, root, right" in answer):
-                status = "demonstrated"
-            elif concept == "pointers_references" and ("segmentation fault" in answer or "null" in answer or "memory address" in answer):
-                status = "demonstrated"
-            elif concept == "recursion_stack" and ("base case" in answer or "call stack" in answer):
-                status = "demonstrated"
-            elif concept == "struct_node_definition" and ("two" in answer or "2" in answer or "struct" in answer):
-                status = "demonstrated"
-            elif "maybe" in answer or "not sure" in answer or "unsure" in answer or len(answer) < 5:
-                status = "uncertain"
-            else:
-                status = "unresolved"
-
-        reasoning = res_json.get("reasoning", f"Graded student response as {status}.")
-        recommendation = res_json.get("next_recommendation", "Proceed to next state.")
+        status = result.get("status", "unresolved")
+        if status not in ("demonstrated", "unresolved", "uncertain"):
+            status = "unresolved"
 
         return Evaluation(
             run_id=attempt.run_id,
             concept=attempt.concept,
             status=status,
-            reasoning=reasoning,
-            next_recommendation=recommendation
+            reasoning=result.get("reasoning", "Evaluation completed."),
+            next_recommendation=result.get("next_recommendation", "Proceed to next state.")
         )

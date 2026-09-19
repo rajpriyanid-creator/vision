@@ -1,17 +1,56 @@
+"""
+VISION LLM Client — Gemini-first, multi-provider, zero hardcoding.
+Supports: Google Gemini (primary), OpenRouter, OpenAI.
+Auto-loads .env. Uses gemini-2.0-flash for speed.
+"""
+
 import os
 import json
 import re
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+from pathlib import Path
 
-class UnifiedLLMClient:
-    """Multi-Provider LLM Client supporting Google Gemini, OpenRouter, and OpenAI with automatic JSON extraction."""
+def _load_env():
+    """Load .env from project root without requiring python-dotenv installed."""
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if env_path.exists():
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if k and v and not os.environ.get(k):
+                        os.environ[k] = v
+
+_load_env()
+
+
+class LLMClient:
+    """
+    Universal LLM Client.
+    Priority: GEMINI_API_KEY → OPENROUTER_API_KEY → OPENAI_API_KEY → mock fallback.
+    All responses are plain text or parsed JSON — zero hardcoded domain data.
+    """
+
+    _instance = None  # singleton cache per process
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
 
     def __init__(self, provider: Optional[str] = None, model: Optional[str] = None):
+        if self._initialized:
+            return
+        self._initialized = True
+
         self.gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self.openrouter_key = os.getenv("OPENROUTER_API_KEY")
         self.openai_key = os.getenv("OPENAI_API_KEY")
 
-        # Determine best available provider
         if provider:
             self.provider = provider
         elif self.gemini_key:
@@ -23,181 +62,161 @@ class UnifiedLLMClient:
         else:
             self.provider = "mock"
 
-        # Model defaults
-        if model:
-            self.model = model
-        elif self.provider == "gemini":
-            self.model = "gemini-2.5-flash"
-        elif self.provider == "openrouter":
-            self.model = os.getenv("SLICE_MODEL") or "google/gemini-2.5-flash"
-        elif self.provider == "openai":
-            self.model = "gpt-4o-mini"
-        else:
-            self.model = "mock-model"
+        model_env = os.getenv("SLICE_MODEL") or os.getenv("GEMINI_MODEL")
+        self.model = model or model_env or (
+            "gemini-3.8-flash" if self.provider == "gemini"
+            else "google/gemini-3.6-flash" if self.provider == "openrouter"
+            else "gpt-4o-mini" if self.provider == "openai"
+            else "mock"
+        )
 
+        self._sdk = None
         self._init_sdk()
+        print(f"[VISION LLM] Provider: {self.provider} | Model: {self.model}")
 
     def _init_sdk(self):
-        if self.provider == "gemini" and self.gemini_key:
-            try:
+        try:
+            if self.provider == "gemini" and self.gemini_key:
                 from google import genai
-                self.client = genai.Client(api_key=self.gemini_key)
-                self.sdk_type = "google_genai"
-            except Exception:
-                import google.generativeai as genai
-                genai.configure(api_key=self.gemini_key)
-                self.client = genai
-                self.sdk_type = "google_generativeai"
+                self._sdk = genai.Client(api_key=self.gemini_key)
+                self._sdk_type = "google_genai"
 
-        elif self.provider == "openrouter" and self.openrouter_key:
-            from openai import OpenAI
-            self.client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=self.openrouter_key
-            )
-            self.sdk_type = "openai_compatible"
+            elif self.provider == "openrouter" and self.openrouter_key:
+                from openai import OpenAI
+                self._sdk = OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=self.openrouter_key
+                )
+                self._sdk_type = "openai_compat"
 
-        elif self.provider == "openai" and self.openai_key:
-            from openai import OpenAI
-            self.client = OpenAI(api_key=self.openai_key)
-            self.sdk_type = "openai_compatible"
+            elif self.provider == "openai" and self.openai_key:
+                from openai import OpenAI
+                self._sdk = OpenAI(api_key=self.openai_key)
+                self._sdk_type = "openai_compat"
 
-        else:
-            self.sdk_type = "mock"
+            else:
+                self._sdk_type = "mock"
+        except Exception as e:
+            print(f"[VISION LLM] SDK init failed ({e}), using mock.")
+            self._sdk_type = "mock"
 
-    def generate(self, system_prompt: str, user_prompt: str, json_output: bool = False) -> str:
-        """Executes LLM call using configured provider or smart fallback."""
-        if self.sdk_type == "mock":
-            return self._mock_fallback(system_prompt, user_prompt, json_output)
+    # ─────────────────────────── Public API ────────────────────────────
+
+    def chat(self, system: str, user: str, max_tokens: int = 1024) -> str:
+        """Returns raw text response."""
+        if self._sdk_type == "mock":
+            return f"[Mock response] {user[:100]}"
 
         try:
-            if self.sdk_type == "google_genai":
-                prompt = f"{system_prompt}\n\nUser Prompt:\n{user_prompt}"
-                config = {}
-                if json_output:
-                    config["response_mime_type"] = "application/json"
-                response = self.client.models.generate_content(
+            if self._sdk_type == "google_genai":
+                from google.genai import types
+                config = types.GenerateContentConfig(
+                    system_instruction=system,
+                    max_output_tokens=max_tokens,
+                    temperature=0.3,
+                )
+                response = self._sdk.models.generate_content(
                     model=self.model,
-                    contents=prompt,
+                    contents=user,
                     config=config
                 )
-                return response.text
+                return response.text or ""
 
-            elif self.sdk_type == "google_generativeai":
-                model_inst = self.client.GenerativeModel(self.model, system_instruction=system_prompt)
-                response = model_inst.generate_content(user_prompt)
-                return response.text
-
-            elif self.sdk_type == "openai_compatible":
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ]
-                kwargs = {"model": self.model, "messages": messages}
-                if json_output:
-                    kwargs["response_format"] = {"type": "json_object"}
-
-                response = self.client.chat.completions.create(**kwargs)
-                return response.choices[0].message.content
+            elif self._sdk_type == "openai_compat":
+                resp = self._sdk.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    max_tokens=max_tokens,
+                    temperature=0.3,
+                )
+                return resp.choices[0].message.content or ""
 
         except Exception as e:
-            print(f"[LLM Warning] API Call failed ({e}), falling back to smart generation.")
-            return self._mock_fallback(system_prompt, user_prompt, json_output)
+            print(f"[VISION LLM] API call failed: {e}")
+            return f"[Error: {e}]"
 
-    def generate_json(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
-        """Generates structured JSON output from LLM with robust JSON parsing."""
-        raw_text = self.generate(system_prompt, user_prompt, json_output=True)
-        return self._extract_json(raw_text)
+        return ""
 
-    def _extract_json(self, text: str) -> Dict[str, Any]:
+    def chat_json(self, system: str, user: str, max_tokens: int = 1024) -> Dict[str, Any]:
+        """Returns parsed JSON dict from LLM. Falls back gracefully."""
+        json_system = system + "\n\nIMPORTANT: Respond with valid JSON only. No markdown, no code blocks, no extra text."
+        raw = self.chat(json_system, user, max_tokens=max_tokens)
+        return self._parse_json(raw)
+
+    # ─────────────────────────── Helpers ───────────────────────────────
+
+    @staticmethod
+    def _parse_json(text: str) -> Dict[str, Any]:
+        text = text.strip()
+        # Strip markdown code fences
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        # Try direct parse
         try:
             return json.loads(text)
         except Exception:
-            # Try regex extraction of JSON block
-            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-            if match:
-                try:
-                    return json.loads(match.group(1))
-                except Exception:
-                    pass
-            # Try finding raw braces
-            match_raw = re.search(r"\{.*\}", text, re.DOTALL)
-            if match_raw:
-                try:
-                    return json.loads(match_raw.group(0))
-                except Exception:
-                    pass
-            return {"raw_output": text}
+            pass
+        # Extract first JSON object
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        if m:
+            try:
+                return json.loads(m.group())
+            except Exception:
+                pass
+        return {"raw": text}
 
-    def _mock_fallback(self, system_prompt: str, user_prompt: str, json_output: bool) -> str:
-        """Dynamic fallback engine when no live API keys are provided."""
-        user_lower = user_prompt.lower()
-        if "supervisor" in system_prompt.lower() or "plan" in user_lower:
-            data = {
-                "target_concept": "binary_tree_inorder_traversal",
-                "next_agent": "Exercise",
-                "action": "generate_initial_target_question",
-                "reasoning": "Initiating dynamic study session for binary tree inorder traversal."
-            }
-        elif "diagnostic" in system_prompt.lower() or "diagnose" in user_lower:
-            # Extract student answer line from prompt if present
-            student_ans = ""
-            if "student answer:" in user_lower:
-                student_ans = user_lower.split("student answer:")[-1]
-            else:
-                student_ans = user_lower
+    @property
+    def is_live(self) -> bool:
+        return self._sdk_type != "mock"
 
-            if "array" in student_ans or "index 0" in student_ans:
-                candidate = "array_traversal"
-            elif "null" in student_ans or "segmentation fault" in student_ans or "address" in student_ans or "dereferencing" in student_ans:
-                candidate = "pointers_references"
-            elif "struct" in student_ans or "declared" in student_ans or "member" in student_ans:
-                candidate = "struct_node_definition"
-            elif "recursion" in student_ans or "base case" in student_ans or "stack" in student_ans or "overflow" in student_ans:
-                candidate = "recursion_stack"
-            elif "b, a, c" in student_ans or "maybe" in student_ans or "unsure" in student_ans or "sequence" in student_ans:
-                candidate = "binary_tree_inorder_traversal"
-            else:
-                candidate = "binary_tree_inorder_traversal"
+    def set_model(self, model_id: str):
+        """Dynamically switch the model at runtime (e.g. from UI)."""
+        self.model = model_id
+        print(f"[VISION LLM] Switched to model: {model_id}")
 
-            data = {
-                "candidate_prerequisite": candidate,
-                "confidence": 0.92,
-                "reasoning": f"Identified core gap pattern pointing to prerequisite concept '{candidate}'."
-            }
-        elif "resource" in system_prompt.lower() or "corpus" in user_lower:
-            data = {
-                "source_id": "data_structures_notes.md#L1-L100",
-                "excerpt_quote": "Pointers store memory addresses. Dereferencing a NULL pointer leads to undefined behavior or segmentation fault.",
-                "verification_status": "verified"
-            }
-        elif "tutor" in system_prompt.lower() or "reteach" in user_lower:
-            data = {
-                "teaching_mode": "code_trace",
-                "explanation_text": "### Dynamic Reteaching Lesson\n\nWhen traversing a binary tree, always ensure pointers are non-NULL before dereferencing `left` or `right` nodes."
-            }
-        elif "exercise" in system_prompt.lower() or "question" in user_lower:
-            data = {
-                "question_text": "What is the sequence of visiting nodes in an inorder binary tree traversal (Left, Root, Right)?",
-                "rubric_ref": "domain/rubric.json#binary_tree_inorder_traversal"
-            }
-        elif "evaluation" in system_prompt.lower() or "grade" in user_lower:
-            if "b, a, c" in user_lower or "left, root, right" in user_lower:
-                status = "demonstrated"
-            elif ("segmentation fault" in user_lower or "null" in user_lower) and "pointers_references" in user_lower:
-                status = "demonstrated"
-            elif ("base case" in user_lower or "stack" in user_lower) and "recursion_stack" in user_lower:
-                status = "demonstrated"
-            elif "maybe" in user_lower or "unsure" in user_lower:
-                status = "uncertain"
-            else:
-                status = "unresolved"
-            data = {
-                "status": status,
-                "reasoning": f"Graded response as {status}.",
-                "next_recommendation": "Proceed to next state in adaptive loop."
-            }
-        else:
-            data = {"status": "success", "text": "Dynamic AI response generated."}
+    def list_models(self) -> list:
+        """Return all available text-generation models for this API key."""
+        if self._sdk_type != "google_genai" or self._sdk is None:
+            return []
+        try:
+            # Filter to text/chat models only (exclude TTS, embedding, Veo, Lyria)
+            SKIP_KEYWORDS = {"tts", "embed", "veo", "lyria", "transcribe",
+                             "audio", "image", "translate", "robotics",
+                             "computer-use", "aqa", "deep-research", "nano-banana"}
+            models = []
+            for m in self._sdk.models.list():
+                name = m.name.lower()
+                if any(kw in name for kw in SKIP_KEYWORDS):
+                    continue
+                display = getattr(m, "display_name", None) or m.name
+                model_id = m.name.replace("models/", "")
+                models.append({"id": model_id, "display": display})
+            return models
+        except Exception as e:
+            print(f"[VISION LLM] list_models failed: {e}")
+            return []
 
-        return json.dumps(data) if json_output else data.get("explanation_text", json.dumps(data))
+    def escalate(self, system: str, user: str, max_tokens: int = 1024) -> str:
+        """Use a stronger model (SLICE_ESCALATION_MODEL) for hard reasoning tasks.
+        Auto-falls back to primary model on quota exhaustion."""
+        escalation_model = (
+            os.getenv("SLICE_ESCALATION_MODEL") or "gemini-2.5-pro"
+        )
+        original = self.model
+        self.model = escalation_model
+        try:
+            result = self.chat(system, user, max_tokens=max_tokens)
+            # If escalation hit quota, fall back silently to primary
+            if result and "RESOURCE_EXHAUSTED" in result:
+                print(f"[VISION LLM] Escalation quota hit — falling back to {original}")
+                self.model = original
+                return self.chat(system, user, max_tokens=max_tokens)
+            return result
+        except Exception:
+            self.model = original
+            return self.chat(system, user, max_tokens=max_tokens)
+        finally:
+            self.model = original

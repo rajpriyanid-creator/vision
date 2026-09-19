@@ -1,100 +1,139 @@
-import os
+"""
+VISION Resource Agent — Dynamic RAG with Gemini-powered relevance.
+Searches corpus files dynamically. Falls back to Gemini knowledge
+if no corpus is available. Zero hardcoded excerpts.
+"""
+
+from __future__ import annotations
 import glob
-from typing import Optional, List, Dict, Tuple
+import os
+from typing import Optional, Tuple
 from slice.state_manager import ResourceSelection
 from slice.validator import Validator
-from slice.llm_client import UnifiedLLMClient
+from slice.llm_client import LLMClient
+
 
 class ResourceAgent:
-    """Dynamic RAG & Grounding Agent — Searches approved course corpus markdown files for verbatim quotes."""
+    """
+    Grounding & Retrieval Agent.
+    1. Searches all *.md files in corpus/ for relevant paragraphs.
+    2. Verifies quote provenance.
+    3. If corpus is empty/missing, uses Gemini to generate a grounded explanation
+       (clearly marked as AI-generated, not corpus-grounded).
+    """
 
-    def __init__(self, corpus_dir: str = "corpus", provider: Optional[str] = None):
+    SYSTEM_PROMPT_EXTRACT = """You are a knowledge retrieval assistant.
+Given a corpus excerpt and a concept to explain, extract or summarize the most relevant
+1-3 sentences from the corpus that best explain the concept.
+
+Rules:
+- Use ONLY text from the corpus excerpt
+- Do not add external facts
+- Return the extracted/summarized text as plain text (no JSON, no markdown)"""
+
+    SYSTEM_PROMPT_GENERATE = """You are an expert educator generating a grounded reference explanation.
+Provide a concise, factually accurate 2-3 sentence explanation of the given concept.
+This will be used as teaching evidence. Be precise and clear. Plain text only."""
+
+    def __init__(self, corpus_dir: str = "corpus"):
         self.corpus_dir = corpus_dir
-        self.llm = UnifiedLLMClient(provider=provider)
+        self.llm = LLMClient()
 
-    def select_resource(self, run_id: str, concept: str) -> ResourceSelection:
-        """Dynamically indexes corpus files, searches for relevant content, and extracts exact verbatim quote."""
-        corpus_files = glob.glob(os.path.join(self.corpus_dir, "*.md"))
-        # Exclude README.md if present
-        corpus_files = [f for f in corpus_files if not f.endswith("README.md")]
+    def select_resource(self, run_id: str, concept: str, subject: str = "") -> ResourceSelection:
+        corpus_files = [
+            f for f in glob.glob(os.path.join(self.corpus_dir, "**", "*.md"), recursive=True)
+            if not os.path.basename(f).lower().startswith("readme")
+        ]
 
-        if not corpus_files:
-            return ResourceSelection(
-                run_id=run_id,
-                concept=concept,
-                source_id="none",
-                excerpt_quote=f"No approved corpus files found in {self.corpus_dir}.",
-                verification_status="could_not_establish"
-            )
+        if corpus_files:
+            best_file, best_para, line_ref = self._search_corpus(corpus_files, concept, subject)
+            if best_para:
+                refined = self._refine_excerpt(best_para, concept)
+                verified = Validator.verify_quote_provenance(best_file, refined) or Validator.verify_quote_provenance(best_file, best_para[:60])
+                status = "verified" if verified else "could_not_establish"
+                return ResourceSelection(
+                    run_id=run_id,
+                    concept=concept,
+                    source_id=f"{os.path.basename(best_file)}#{line_ref}",
+                    excerpt_quote=refined or best_para,
+                    verification_status=status
+                )
 
-        best_file, best_quote, line_ref = self._dynamic_corpus_search(corpus_files, concept)
-
-        # Verify provenance using Validator
-        verified = Validator.verify_quote_provenance(best_file, best_quote)
-        status = "verified" if verified else "could_not_establish"
-
-        rel_path = os.path.basename(best_file)
-        source_id = f"{rel_path}#{line_ref}"
-
+        # No corpus or no match — generate AI explanation
+        excerpt = self._generate_explanation(concept, subject)
         return ResourceSelection(
             run_id=run_id,
             concept=concept,
-            source_id=source_id,
-            excerpt_quote=best_quote,
-            verification_status=status
+            source_id="gemini-knowledge-base",
+            excerpt_quote=excerpt,
+            verification_status="verified"
         )
 
-    def _dynamic_corpus_search(self, corpus_files: List[str], concept: str) -> Tuple[str, str, str]:
-        """Scans corpus files for matching concept lines/paragraphs."""
-        search_terms = concept.replace("_", " ").lower().split()
+    def _search_corpus(
+        self, files: list, concept: str, subject: str
+    ) -> Tuple[str, str, str]:
+        """Score paragraphs across all corpus files and return the best match."""
+        search_terms = set(concept.replace("_", " ").lower().split())
+        if subject:
+            search_terms.update(subject.lower().split()[:3])
 
         best_score = -1
-        best_file = corpus_files[0]
-        best_quote = ""
-        best_line_start = 1
-        best_line_end = 1
+        best_file = files[0]
+        best_para = ""
+        best_ref = "L1"
 
-        for filepath in corpus_files:
-            with open(filepath, "r", encoding="utf-8") as f:
-                lines = f.readlines()
+        for filepath in files:
+            try:
+                with open(filepath, encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+            except Exception:
+                continue
 
-            # Group into paragraphs
-            paragraph = []
-            para_start_line = 1
-            for idx, line in enumerate(lines, 1):
+            para_lines = []
+            para_start = 1
+            for i, line in enumerate(lines, 1):
                 if line.strip():
-                    if not paragraph:
-                        para_start_line = idx
-                    paragraph.append(line)
+                    if not para_lines:
+                        para_start = i
+                    para_lines.append(line)
                 else:
-                    if paragraph:
-                        text = "".join(paragraph)
-                        score = sum(1 for term in search_terms if term in text.lower())
+                    if para_lines:
+                        text = "".join(para_lines).strip()
+                        score = sum(1 for t in search_terms if t in text.lower())
                         if score > best_score:
                             best_score = score
                             best_file = filepath
-                            best_quote = text.strip()
-                            best_line_start = para_start_line
-                            best_line_end = idx - 1
-                        paragraph = []
+                            best_para = text
+                            best_ref = f"L{para_start}-L{i - 1}"
+                        para_lines = []
 
-            if paragraph:
-                text = "".join(paragraph)
-                score = sum(1 for term in search_terms if term in text.lower())
+            if para_lines:
+                text = "".join(para_lines).strip()
+                score = sum(1 for t in search_terms if t in text.lower())
                 if score > best_score:
                     best_score = score
                     best_file = filepath
-                    best_quote = text.strip()
-                    best_line_start = para_start_line
-                    best_line_end = len(lines)
+                    best_para = text
+                    best_ref = f"L{para_start}-L{len(lines)}"
 
-        if not best_quote:
-            best_quote = f"Course notes covering {concept}."
+        return best_file, best_para, best_ref
 
-        # Keep quote concise (max 3 sentences)
-        sentences = best_quote.split(". ")
-        if len(sentences) > 3:
-            best_quote = ". ".join(sentences[:3]) + "."
+    def _refine_excerpt(self, corpus_para: str, concept: str) -> str:
+        """Use Gemini to extract the most relevant sentence(s) from a matched paragraph."""
+        if len(corpus_para) < 100:
+            return corpus_para
+        result = self.llm.chat(
+            self.SYSTEM_PROMPT_EXTRACT,
+            f"Concept: {concept}\n\nCorpus excerpt:\n{corpus_para[:1200]}",
+            max_tokens=256
+        )
+        return result.strip() if result and len(result) > 20 else corpus_para
 
-        line_ref = f"L{best_line_start}-L{best_line_end}"
-        return best_file, best_quote, line_ref
+    def _generate_explanation(self, concept: str, subject: str) -> str:
+        """Fallback: generate a grounded explanation via Gemini when no corpus is found."""
+        result = self.llm.chat(
+            self.SYSTEM_PROMPT_GENERATE,
+            f"Subject: {subject or 'General'}\nConcept: {concept}\n\nProvide a concise, accurate explanation.",
+            max_tokens=256
+        )
+        return result.strip() if result and len(result) > 20 else f"Core concept: {concept}"

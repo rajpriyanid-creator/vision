@@ -1,45 +1,68 @@
-import os
-from typing import Optional, Literal
+"""
+VISION Exercise Agent — Fully dynamic, open-domain.
+Zero hardcoded questions. Generates targeted assessment questions
+via Gemini for ANY concept in ANY subject.
+"""
+
+from __future__ import annotations
+from typing import Literal
 from slice.state_manager import Exercise
-from slice.llm_client import UnifiedLLMClient
+from slice.llm_client import LLMClient
+
 
 class ExerciseAgent:
-    """Targeted Exercise Generator Agent — Produces dynamic assessment questions using LLMs."""
+    """
+    Targeted Exercise Generator.
+    Generates conceptual questions for any subject using Gemini.
+    No hardcoded questions — ever.
+    """
 
-    def __init__(self, provider: Optional[str] = None):
-        self.llm = UnifiedLLMClient(provider=provider)
+    SYSTEM_PROMPT = """You are the VISION Exercise Agent.
 
-    def generate_exercise(self, run_id: str, concept: str, exercise_type: Literal["prereq_recheck", "target_retest", "tie_breaker", "initial_target"]) -> Exercise:
-        """Generates a dynamic targeted assessment question."""
-        
-        system_prompt = (
-            "You are the Exercise Agent of VISION. Generate a clear, concise assessment question testing a specific computer science concept.\n"
-            "Return JSON with fields:\n"
-            "- question_text: str (the question to present to the student)"
-        )
+Your job: generate ONE clear, targeted question to assess a student's understanding 
+of a specific concept. The question should be:
+- Directly testing the target concept (not surrounding fluff)
+- Answerable in 1-3 sentences or a short code/formula
+- At the right difficulty level for the exercise type
 
-        user_prompt = (
-            f"Concept: {concept}\n"
-            f"Exercise Type: {exercise_type}\n\n"
-            "Formulate a precise question to test student understanding."
-        )
+Exercise types:
+- initial_target: First-time test of the concept the student wants to learn
+- prereq_recheck: Test if a prerequisite gap has been repaired after reteaching
+- target_retest: Test the original target concept after prerequisite repair
+- tie_breaker: Clarifying question to resolve an ambiguous student answer
 
-        res_json = self.llm.generate_json(system_prompt, user_prompt)
-        question = res_json.get("question_text")
+Respond with JSON only:
+{
+  "question_text": "<the question to ask the student>",
+  "expected_answer_hint": "<brief note on what a correct answer should contain>"
+}"""
 
-        if not question:
-            fallback_map = {
-                "binary_tree_inorder_traversal": "For a binary tree with root A, left child B, and right child C, what is the sequence of nodes visited in an inorder traversal?",
-                "pointers_references": "If a pointer `p` holds NULL, what happens when you evaluate `p->data`?",
-                "recursion_stack": "What prevents a recursive function call from overflowing the system stack?",
-                "struct_node_definition": "How many pointer fields are required inside a standard binary tree node struct?"
-            }
-            question = fallback_map.get(concept, f"Please explain your understanding of {concept} with a code example or concise explanation.")
+    def __init__(self):
+        self.llm = LLMClient()
+
+    def generate_exercise(
+        self,
+        run_id: str,
+        concept: str,
+        exercise_type: Literal["prereq_recheck", "target_retest", "tie_breaker", "initial_target"],
+        subject: str = "",
+        context: str = ""
+    ) -> Exercise:
+        user_prompt = f"""Subject: {subject or 'General'}
+Concept to test: {concept}
+Exercise type: {exercise_type}
+Additional context: {context or 'None'}
+
+Generate a targeted assessment question and return JSON."""
+
+        result = self.llm.chat_json(self.SYSTEM_PROMPT, user_prompt, max_tokens=512)
+
+        question = result.get("question_text") or f"Please explain {concept} in your own words with an example."
 
         return Exercise(
             run_id=run_id,
             concept=concept,
             exercise_type=exercise_type,
             question_text=question,
-            rubric_ref=f"domain/rubric.json#{concept}"
+            rubric_ref=f"dynamic:{subject}:{concept}"
         )

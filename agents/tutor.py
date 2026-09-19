@@ -1,49 +1,85 @@
-import os
-from typing import Optional
+"""
+VISION Tutor Agent — Fully dynamic, open-domain.
+Zero hardcoded lessons. Uses Gemini to generate grounded, personalized
+reteaching explanations for ANY concept in ANY subject.
+"""
+
+from __future__ import annotations
 from slice.state_manager import TeachingAction, ResourceSelection, StudentState
-from slice.llm_client import UnifiedLLMClient
+from slice.llm_client import LLMClient
+
 
 class TutorAgent:
-    """Personalized Reteaching Agent — Formulates grounded explanations using LLM adapted to student learning preferences."""
+    """
+    Personalized Reteaching Agent.
+    Constructs grounded lessons for any concept using the resource excerpt
+    as evidence, adapted to the student's successful learning modes.
+    Never reveals the answer to the target question.
+    """
 
-    def __init__(self, provider: Optional[str] = None):
-        self.llm = UnifiedLLMClient(provider=provider)
+    SYSTEM_PROMPT = """You are the VISION Tutor Agent — a world-class adaptive educator.
 
-    def reteach(self, run_id: str, resource: ResourceSelection, student_state: StudentState) -> TeachingAction:
-        """Constructs a personalized lesson for the prerequisite concept."""
+Your job: explain a prerequisite concept to a student who is struggling, using the provided
+grounded evidence excerpt. Adapt your teaching mode to what works for this student.
+
+Teaching modes:
+- code_trace: Walk through code step-by-step
+- visual_diagram: ASCII diagrams, mental models  
+- analogy: Real-world comparisons
+- step_by_step: Numbered procedural breakdown
+- socratic: Guide with questions
+- conceptual: First principles explanation
+
+Rules:
+- Use ONLY the provided evidence excerpt as your source (do not fabricate facts)
+- Teach the PREREQUISITE concept, NOT the target answer
+- Be concise but complete (aim for 150-250 words)
+- End with one connecting sentence linking this concept back to what the student is trying to learn
+
+Respond with plain text (formatted markdown is OK). No JSON."""
+
+    def __init__(self):
+        self.llm = LLMClient()
+
+    def reteach(
+        self,
+        run_id: str,
+        resource: ResourceSelection,
+        student_state: StudentState,
+        target_concept: str = "",
+        subject: str = ""
+    ) -> TeachingAction:
         concept = resource.concept
-        
-        # Pick preferred mode
-        available_modes = ["code_trace", "visual_diagram", "analogy", "step_by_step"]
-        preferred_modes = [m for m in student_state.successful_modes if m not in student_state.failed_modes]
-        selected_mode = preferred_modes[0] if preferred_modes else available_modes[0]
 
-        system_prompt = (
-            "You are the Tutor Agent of VISION. Create a clear, engaging, grounded lesson for a student struggling with a prerequisite concept.\n"
-            f"Teaching Mode: {selected_mode}.\n"
-            "Format with markdown headings, clear explanations, and an ASCII diagram or code trace if applicable.\n"
-            "Do NOT reveal direct test answers."
-        )
+        # Pick preferred teaching mode
+        all_modes = ["step_by_step", "analogy", "code_trace", "visual_diagram", "conceptual", "socratic"]
+        failed = set(student_state.failed_modes)
+        preferred = [m for m in student_state.successful_modes if m not in failed]
+        if not preferred:
+            preferred = [m for m in all_modes if m not in failed]
+        selected_mode = preferred[0] if preferred else "step_by_step"
 
-        user_prompt = (
-            f"Prerequisite Concept: {concept}\n"
-            f"Grounded Excerpt Quote: {resource.excerpt_quote}\n\n"
-            f"Write a 2-paragraph lesson in '{selected_mode}' mode."
-        )
+        user_prompt = f"""Subject: {subject or 'General'}
+Prerequisite Concept to Teach: {concept}
+Ultimate target the student is working toward: {target_concept or concept}
+Teaching Mode: {selected_mode}
+Student successful modes: {student_state.successful_modes}
+Grounded Evidence Excerpt:
+---
+{resource.excerpt_quote}
+---
+(Source: {resource.source_id})
 
-        explanation = self.llm.generate(system_prompt, user_prompt)
-        if not explanation or len(explanation) < 30:
-            explanation = (
-                f"### Focus Lesson: {concept.replace('_', ' ').title()}\n\n"
-                f"**Teaching Mode:** `{selected_mode}`\n\n"
-                f"**Core Concept Overview:**\n{resource.excerpt_quote}\n\n"
-                f"*Key Takeaway:* To master binary trees, understand how {concept.replace('_', ' ')} functions under the hood."
-            )
+Write the reteaching lesson for this prerequisite concept."""
+
+        lesson = self.llm.chat(self.SYSTEM_PROMPT, user_prompt, max_tokens=600)
+        if not lesson or len(lesson) < 30:
+            lesson = f"**{concept}** is a foundational concept.\n\n{resource.excerpt_quote}"
 
         return TeachingAction(
             run_id=run_id,
             concept=concept,
             teaching_mode=selected_mode,
-            explanation_text=explanation,
+            explanation_text=lesson,
             evidence_ref=resource.source_id
         )
