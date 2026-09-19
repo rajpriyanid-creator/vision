@@ -1,6 +1,7 @@
 """
-VISION Evaluation Agent — Fully dynamic, open-domain.
-Zero hardcoded rubrics. Uses Gemini to grade any student answer on any subject.
+VISION Evaluation Agent — Open-domain, rubric-based grading.
+Zero hardcoded rubrics. Evaluates student responses against concept criteria, MCQ answer key,
+or coding test case execution results. Returns demonstrated, unresolved, or uncertain.
 """
 
 from __future__ import annotations
@@ -12,32 +13,33 @@ import re
 class EvaluationAgent:
     """
     Rubric-Based Evaluation Agent.
-    Grades any student answer on any concept into:
-    - demonstrated: student clearly understands
-    - unresolved: student reveals a gap or misconception
-    - uncertain: ambiguous/vague — needs tie-breaker
+    Evaluates student answers into one of three strict statuses:
+      - demonstrated: Student shows clear, correct understanding
+      - unresolved: Student displays a misconception or incorrect answer requiring diagnosis
+      - uncertain: Student response is ambiguous or incomplete, requiring a tie-breaker exit ticket
     """
 
-    SYSTEM_PROMPT = """You are the VISION Evaluation Agent.
+    SYSTEM_PROMPT = """You are the VISION Evaluation Agent — a rigorous, fair educational grader.
 
-Grade the student's answer to a conceptual question. Be fair but rigorous.
-Use exactly one of these statuses:
-- "demonstrated": the answer is correct or shows solid understanding
-- "unresolved": the answer is wrong, incomplete, or reveals a misconception  
-- "uncertain": the answer is ambiguous, too vague to classify, or needs clarification
+Your job: evaluate a student's answer to an assessment question against rubric criteria.
+
+Statuses:
+- "demonstrated": Answer is correct or demonstrates solid conceptual understanding.
+- "unresolved": Answer is incorrect, reveals a clear misconception, or fails key requirements.
+- "uncertain": Answer is ambiguous, incomplete, or impossible to evaluate cleanly without a clarifying check.
 
 Respond with JSON only:
 {
   "status": "demonstrated | unresolved | uncertain",
-  "reasoning": "<why you chose this status — what specifically was right or wrong>",
-  "next_recommendation": "<what should happen next educationally>"
+  "reasoning": "<specific explanation of evidence in answer>",
+  "next_recommendation": "<suggested educational next step>"
 }"""
 
     def __init__(self):
         self.llm = LLMClient()
 
     def evaluate_attempt(self, attempt: Attempt) -> Evaluation:
-        # Check if attempt includes coding test case results
+        # 1. Code execution evaluation
         if attempt.test_results:
             passed = [t for t in attempt.test_results if t.get("passed", False)]
             failed = [t for t in attempt.test_results if not t.get("passed", False)]
@@ -47,7 +49,7 @@ Respond with JSON only:
                     concept=attempt.concept,
                     status="demonstrated",
                     reasoning=f"✅ All {len(passed)} test cases passed successfully for code submission.",
-                    next_recommendation="Mastery confirmed. Proceed to next level."
+                    next_recommendation="Mastery confirmed. Proceed to next target."
                 )
             else:
                 fail_details = "; ".join([f"{f.get('description', 'Test')}: Expected '{f.get('expected')}', Got '{f.get('actual')}'" for f in failed[:3]])
@@ -59,15 +61,26 @@ Respond with JSON only:
                     next_recommendation="Diagnose prerequisite gap based on failing test cases."
                 )
 
+        # 2. Offline / Deterministic Fallback mode
         if not self.llm.is_live:
-            answer = attempt.student_answer.strip().lower()
-            question = attempt.question.lower()
-            concept = attempt.concept.lower()
+            answer = (attempt.student_answer or "").strip()
+            selected = attempt.selected_option or ""
+            answer_lower = answer.lower()
 
-            if attempt.selected_option:
-                is_correct = any(kw in attempt.selected_option.lower() for kw in ("left", "prerequisite", "first", "correct", "a"))
+            if any(term in answer_lower for term in ("segmentation fault", "null reference", "error", "bug", "failed", "wrong", "cannot", "overflow")):
+                return Evaluation(
+                    run_id=attempt.run_id,
+                    concept=attempt.concept,
+                    status="unresolved",
+                    reasoning="The answer describes an execution failure or error state requiring prerequisite gap diagnosis.",
+                    next_recommendation="Diagnose prerequisite gap."
+                )
+
+            if selected:
+                # MCQ Option evaluation
+                is_correct = any(kw in selected.lower() for kw in ("first", "prerequisite", "correct", "left", "structural", "a"))
                 status = "demonstrated" if is_correct else "unresolved"
-                reason = f"Selected option '{attempt.selected_option}' correctly addresses the concept." if is_correct else f"Selected option '{attempt.selected_option}' is incorrect."
+                reason = f"Selected option '{selected}' correctly answers the concept criteria." if is_correct else f"Selected option '{selected}' is incorrect."
                 return Evaluation(
                     run_id=attempt.run_id,
                     concept=attempt.concept,
@@ -76,44 +89,38 @@ Respond with JSON only:
                     next_recommendation="Continue to next step." if status == "demonstrated" else "Diagnose gap."
                 )
 
-            if not answer or any(token in answer for token in ("just give me", "ignore previous", "mark me as")):
-                status = "uncertain" if not answer else "unresolved"
-                reason = "The response does not provide enough evidence of understanding."
-            elif ("inorder" in question or "inorder" in concept) and "before processing" not in question:
-                compact = re.sub(r"[^a-z]", "", answer)
-                correct = "bac" in compact or ("left" in answer and "root" in answer and "right" in answer)
-                wrong_order = "abc" in compact or ("root" in answer and "left" in answer and answer.index("root") < answer.index("left"))
-                status = "demonstrated" if correct else ("uncertain" if wrong_order else "unresolved")
-                reason = "The response demonstrates Left → Root → Right ordering." if correct else "The response needs a quick ordering check before diagnosing a deeper gap."
-            elif "before processing" in question or "subtree" in question:
-                status = "demonstrated" if "left" in answer and ("subtree" in answer or "sub tree" in answer) else "unresolved"
-                reason = "The student identified the left subtree as the first step." if status == "demonstrated" else "The response places the root before the left subtree."
-            elif concept == "recursion":
-                status = "demonstrated" if any(term in answer for term in ("return", "stop", "terminate", "base case", "null")) else "unresolved"
-                reason = "The response identifies termination and returning to the caller." if status == "demonstrated" else "The response does not explain how the recursive process terminates."
-            elif concept == "call_stack_reasoning":
-                status = "demonstrated" if "pop" in answer or "lifo" in answer or "caller" in answer else "unresolved"
-                reason = "The response describes stack unwinding." if status == "demonstrated" else "The response does not explain stack-frame unwinding."
-            elif concept == "tree_traversal_order":
-                status = "demonstrated" if "left" in answer and "root" in answer and "right" in answer else "unresolved"
-                reason = "The traversal order is present." if status == "demonstrated" else "The three traversal positions are incomplete."
+            # Text / Fill-in evaluation
+            if not answer or any(token in answer_lower for token in ("don't know", "unsure", "not sure", "maybe", "idk")):
+                return Evaluation(
+                    run_id=attempt.run_id,
+                    concept=attempt.concept,
+                    status="uncertain",
+                    reasoning="The answer is ambiguous or expresses uncertainty, requiring a 1-step tie-breaker exit ticket.",
+                    next_recommendation="Issue a 1-step Concept Exit Ticket."
+                )
+            elif len(answer.split()) < 4:
+                return Evaluation(
+                    run_id=attempt.run_id,
+                    concept=attempt.concept,
+                    status="unresolved",
+                    reasoning="Answer is incomplete or too short to demonstrate understanding.",
+                    next_recommendation="Diagnose prerequisite gap."
+                )
             else:
-                status = "demonstrated" if len(answer.split()) >= 8 else "uncertain"
-                reason = "The answer includes a sufficiently developed explanation." if status == "demonstrated" else "A little more explanation is needed."
+                return Evaluation(
+                    run_id=attempt.run_id,
+                    concept=attempt.concept,
+                    status="demonstrated",
+                    reasoning="Student response provides sufficient conceptual explanation.",
+                    next_recommendation="Mastery confirmed. Proceed."
+                )
 
-            return Evaluation(
-                run_id=attempt.run_id,
-                concept=attempt.concept,
-                status=status,
-                reasoning=reason,
-                next_recommendation="Continue to the next learning step." if status == "demonstrated" else "Clarify the concept with a targeted check.",
-            )
+        # 3. Live LLM Rubric Evaluation
+        user_prompt = f"""Concept: {attempt.concept}
+Question Asked: {attempt.question}
+Student's Response / Option Selected: {attempt.selected_option or attempt.student_answer}
 
-        user_prompt = f"""Concept being tested: {attempt.concept}
-Question asked: {attempt.question}
-Student's answer / option: {attempt.selected_option or attempt.student_answer}
-
-Grade this response and return JSON."""
+Grade this response against standard domain rubrics and return JSON."""
 
         result = self.llm.chat_json(self.SYSTEM_PROMPT, user_prompt, max_tokens=512)
 

@@ -272,18 +272,18 @@ This section maintains live symbol-to-line references for automated verification
 | Component / Module | Symbol Reference | Description |
 |---|---|---|
 | Workflow Controller | `slice/controller.py:32` - `WorkflowController` | Deterministic authority & state transitions |
-| State Manager | `slice/state_manager.py:154` - `StateManager` | In-memory student state & history persistence |
+| State Manager | `slice/state_manager.py:165` - `StateManager` | In-memory student state & history persistence |
 | Mongo State Manager | `slice/mongo_state_manager.py:20` - `MongoStateManager` | MongoDB persistent learner state manager |
 | LLM Client | `slice/llm_client.py:30` - `LLMClient` | Multi-model Gemini client & fallback escalation |
 | Validator | `slice/validator.py:5` - `Validator` | Edge & output constraint validator |
 | Handoff Recorder | `slice/handoff.py:4` - `HandoffRecorder` | Typed multi-agent handoff tracker |
 | Supervisor Agent | `agents/supervisor.py:15` - `SupervisorAgent` | AI reasoning coordinator & prerequisite DAG generator |
-| Tutor Agent | `agents/tutor.py:12` - `TutorAgent` | Pedagogical reteaching agent |
+| Tutor Agent | `agents/tutor.py:11` - `TutorAgent` | Pedagogical reteaching agent |
 | Exercise Agent | `agents/exercise.py:13` - `ExerciseAgent` | Targeted check & exercise generator |
-| Evaluation Agent | `agents/evaluation.py:12` - `EvaluationAgent` | Rubric-based answer evaluator |
+| Evaluation Agent | `agents/evaluation.py:13` - `EvaluationAgent` | Rubric-based answer evaluator |
 | Diagnostic Agent | `agents/diagnostic.py:13` - `DiagnosticAgent` | Root-cause gap analysis agent |
-| Resource Agent | `agents/resource.py:16` - `ResourceAgent` | Excerpt quote retriever & verifier |
-| FastAPI App | `app/api.py:71` - `app` | Live REST API application server |
+| Resource Agent | `agents/resource.py:21` - `ResourceAgent` | Excerpt quote retriever & verifier |
+| FastAPI App | `app/api.py:66` - `app` | Live REST API application server |
 | Budget Control | `slice/budget.py:39` - `Budget` | Spend limit & call budget tracking |
 | Record Store | `slice/store.py:83` - `Store` | Append-only execution record store |
 | Context Runner | `slice/runner.py:31` - `Context` | Slice execution context runner |

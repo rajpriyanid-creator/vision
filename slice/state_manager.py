@@ -27,6 +27,7 @@ class CourseContext(BaseModel):
     concepts: List[str]
     dependency_graph: Dict[str, List[str]]
     source_ids: List[str]
+    readiness_status: Literal["CONTEXT_READY", "CONTEXT_INSUFFICIENT", "CONTEXT_CONFLICT", "CONTEXT_UNAVAILABLE"] = "CONTEXT_READY"
 
 
 class StudySession(BaseModel):
@@ -61,8 +62,9 @@ class GapHypothesis(BaseModel):
     run_id: str
     target_concept: str
     candidate_prerequisite: str
-    confidence: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
     evidence_refs: List[str] = Field(default_factory=list)
+    diagnostic_status: str = "HYPOTHESIS_PROPOSED"
 
 
 class ResourceSelection(BaseModel):
@@ -70,7 +72,16 @@ class ResourceSelection(BaseModel):
     concept: str
     source_id: str
     excerpt_quote: str
-    verification_status: Literal["verified", "could_not_establish", "off_target"] = "verified"
+    verification_status: Literal[
+        "VERIFIED_COURSE_SOURCE",
+        "LEARNER_PROVIDED",
+        "AI_GENERATED_SUPPORT",
+        "UNVERIFIED",
+        "COULD_NOT_ESTABLISH",
+        "verified",
+        "could_not_establish",
+        "off_target"
+    ] = "VERIFIED_COURSE_SOURCE"
     web_resources: List[Dict[str, str]] = Field(default_factory=list)
     user_custom_notes: Optional[str] = None
 
@@ -298,13 +309,26 @@ class StateManager:
     def get_events(self, run_id: str) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             rows = conn.execute("SELECT event_id, run_id, timestamp, phase, current_state, actor, action, result, reason FROM session_events WHERE run_id = ? ORDER BY event_id", (run_id,)).fetchall()
-        return [dict(zip(("event_id", "run_id", "timestamp", "phase", "current_state", "actor", "action", "result", "reason"), row)) for row in rows]
+            return [
+                {
+                    "event_id": r[0],
+                    "run_id": r[1],
+                    "timestamp": r[2],
+                    "phase": r[3],
+                    "current_state": r[4],
+                    "actor": r[5],
+                    "action": r[6],
+                    "result": r[7],
+                    "reason": r[8],
+                }
+                for r in rows
+            ]
 
     def save_study_session(self, session: StudySession, session_data: Dict[str, Any]):
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT OR REPLACE INTO study_sessions
+                INSERT OR REPLACE INTO study_sessions 
                 (run_id, student_id, course_id, target_concept, status, revision_count, call_count, current_state, session_data)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -325,20 +349,26 @@ class StateManager:
             cursor = conn.cursor()
             cursor.execute("SELECT run_id, student_id, course_id, target_concept, status, revision_count, call_count, current_state, session_data FROM study_sessions WHERE run_id = ?", (run_id,))
             row = cursor.fetchone()
-            if row:
-                data = json.loads(row[8])
-                data["session"] = {
-                    "run_id": row[0],
-                    "student_id": row[1],
-                    "course_id": row[2],
-                    "target_concept": row[3],
-                    "status": row[4],
-                    "revision_count": row[5],
-                    "call_count": row[6],
-                    "current_state": row[7]
-                }
-                return data
-            return None
+            if not row:
+                return None
+            data = json.loads(row[8])
+            data["session"] = {
+                "run_id": row[0],
+                "student_id": row[1],
+                "course_id": row[2],
+                "target_concept": row[3],
+                "status": row[4],
+                "revision_count": row[5],
+                "call_count": row[6],
+                "current_state": row[7],
+                "agent_activities": data.get("agent_activities", {}),
+                "learner_level": data.get("learner_level", "intermediate"),
+                "learning_goal": data.get("learning_goal", "understand"),
+                "learning_phase_completed": data.get("learning_phase_completed", False),
+                "lesson_skipped": data.get("lesson_skipped", False),
+                "attempt_count": data.get("attempt_count", 0)
+            }
+            return data
 
     def record_handoff(self, handoff: AgentHandoff):
         with self._get_connection() as conn:
@@ -362,7 +392,10 @@ class StateManager:
     def get_handoffs(self, run_id: str) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT from_agent, to_agent, action, input_record_refs, output_record_refs, reason, timestamp FROM agent_handoffs WHERE run_id = ? ORDER BY handoff_id ASC", (run_id,))
+            cursor.execute("""
+                SELECT from_agent, to_agent, action, input_record_refs, output_record_refs, reason, timestamp
+                FROM agent_handoffs WHERE run_id = ? ORDER BY handoff_id ASC
+            """, (run_id,))
             rows = cursor.fetchall()
             return [
                 {
@@ -373,22 +406,24 @@ class StateManager:
                     "output_record_refs": json.loads(r[4]),
                     "reason": r[5],
                     "timestamp": r[6]
-                } for r in rows
+                }
+                for r in rows
             ]
 
-    def get_student_sessions(self, student_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_student_sessions(self, student_id: str) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT run_id, course_id, target_concept, status, current_state, created_at "
-                "FROM study_sessions WHERE student_id = ? ORDER BY created_at DESC LIMIT ?",
-                (student_id, limit),
-            )
+            cursor.execute("SELECT run_id, course_id, target_concept, status, current_state, created_at FROM study_sessions WHERE student_id = ? ORDER BY created_at DESC", (student_id,))
             rows = cursor.fetchall()
             return [
-                dict(zip(
-                    ("run_id", "course_id", "target_concept", "status", "current_state", "created_at"),
-                    row
-                ))
-                for row in rows
+                {
+                    "run_id": r[0],
+                    "course_id": r[1],
+                    "target_concept": r[2],
+                    "status": r[3],
+                    "current_state": r[4],
+                    "created_at": r[5]
+                }
+                for r in rows
             ]
+

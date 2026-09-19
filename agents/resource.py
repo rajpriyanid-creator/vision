@@ -1,7 +1,12 @@
 """
-VISION Resource Agent — Dynamic RAG with Gemini-powered relevance.
-Searches corpus files dynamically. Falls back to Gemini knowledge
-if no corpus is available. Zero hardcoded excerpts.
+VISION Resource Agent — Truthful Grounding & Dynamic Retrieval.
+Searches corpus files dynamically, records provenance, accepts learner-provided notes,
+and tags every resource with an explicit verification status:
+  - VERIFIED_COURSE_SOURCE
+  - LEARNER_PROVIDED
+  - AI_GENERATED_SUPPORT
+  - UNVERIFIED
+  - COULD_NOT_ESTABLISH
 """
 
 from __future__ import annotations
@@ -17,9 +22,9 @@ class ResourceAgent:
     """
     Grounding & Retrieval Agent.
     1. Searches all *.md files in corpus/ for relevant paragraphs.
-    2. Verifies quote provenance.
-    3. If corpus is empty/missing, uses Gemini to generate a grounded explanation
-       (clearly marked as AI-generated, not corpus-grounded).
+    2. Verifies quote provenance against corpus files.
+    3. Accepts learner-provided notes/links.
+    4. Labels AI-generated support explicitly — never claims it is 'grounded in course notes'.
     """
 
     SYSTEM_PROMPT_EXTRACT = """You are a knowledge retrieval assistant.
@@ -29,21 +34,26 @@ Given a corpus excerpt and a concept to explain, extract or summarize the most r
 Rules:
 - Use ONLY text from the corpus excerpt
 - Do not add external facts
-- Return the extracted/summarized text as plain text (no JSON, no markdown)"""
+- Return the extracted/summarized text as plain text"""
 
-    SYSTEM_PROMPT_GENERATE = """You are an expert educator generating a grounded reference explanation.
+    SYSTEM_PROMPT_GENERATE = """You are an expert educator generating a reference explanation.
 Provide a concise, factually accurate 2-3 sentence explanation of the given concept.
-This will be used as teaching evidence. Be precise and clear. Plain text only."""
+Plain text only."""
 
     def __init__(self, corpus_dir: str = "corpus"):
         self.corpus_dir = corpus_dir
         self.llm = LLMClient()
 
-    def select_resource(self, run_id: str, concept: str, subject: str = "", user_notes: Optional[str] = None) -> ResourceSelection:
+    def select_resource(
+        self,
+        run_id: str,
+        concept: str,
+        subject: str = "",
+        user_notes: Optional[str] = None
+    ) -> ResourceSelection:
         concept_clean = concept.replace("_", " ").title()
         query_encoded = concept.replace("_", "+")
 
-        # Curated top web resources
         web_resources = [
             {"site": "YouTube", "title": f"Mastering {concept_clean} — Video Tutorial", "url": f"https://www.youtube.com/results?search_query={query_encoded}+{subject.replace(' ', '+')}"},
             {"site": "GeeksforGeeks", "title": f"{concept_clean} Explanation & Code Guide", "url": f"https://www.geeksforgeeks.org/search/{query_encoded}"},
@@ -57,12 +67,13 @@ This will be used as teaching evidence. Be precise and clear. Plain text only.""
             if not os.path.basename(f).lower().startswith("readme")
         ]
 
+        # 1. Check local course corpus
         if corpus_files:
             best_file, best_para, line_ref = self._search_corpus(corpus_files, concept, subject)
-            if best_para:
+            if best_para and len(best_para.strip()) > 15:
                 refined = self._refine_excerpt(best_para, concept)
                 verified = Validator.verify_quote_provenance(best_file, refined) or Validator.verify_quote_provenance(best_file, best_para[:60])
-                status = "verified" if verified else "could_not_establish"
+                status = "VERIFIED_COURSE_SOURCE" if verified else "COULD_NOT_ESTABLISH"
                 return ResourceSelection(
                     run_id=run_id,
                     concept=concept,
@@ -73,20 +84,38 @@ This will be used as teaching evidence. Be precise and clear. Plain text only.""
                     user_custom_notes=user_notes
                 )
 
-        # If local corpus is missing or doesn't have evidence, build grounded web/AI response + user notes
-        if user_notes:
-            excerpt = f"Learner-Provided Material: '{user_notes}'. Grounded in user reference notes."
-        elif self.llm.is_live:
-            excerpt = self._generate_explanation(concept, subject)
-        else:
-            excerpt = f"Understanding {concept_clean}: Review online references across YouTube, GeeksforGeeks, and W3Schools."
+        # 2. Check user-provided notes
+        if user_notes and len(user_notes.strip()) > 3:
+            return ResourceSelection(
+                run_id=run_id,
+                concept=concept,
+                source_id="learner_provided_notes",
+                excerpt_quote=f"Learner Notes: '{user_notes}'",
+                verification_status="LEARNER_PROVIDED",
+                web_resources=web_resources,
+                user_custom_notes=user_notes
+            )
 
+        # 3. AI Generated Support
+        if self.llm.is_live:
+            ai_excerpt = self._generate_explanation(concept, subject)
+            return ResourceSelection(
+                run_id=run_id,
+                concept=concept,
+                source_id="ai_generated_reference",
+                excerpt_quote=ai_excerpt,
+                verification_status="AI_GENERATED_SUPPORT",
+                web_resources=web_resources,
+                user_custom_notes=user_notes
+            )
+
+        # 4. Fallback / Unverified web Discovery
         return ResourceSelection(
             run_id=run_id,
             concept=concept,
-            source_id="ai-generated-or-learner-notes",
-            excerpt_quote=excerpt,
-            verification_status="could_not_establish" if not user_notes else "verified",
+            source_id="web_discovery_recommendations",
+            excerpt_quote=f"Review online learning materials for '{concept_clean}' across YouTube, GeeksforGeeks, W3Schools, and Coursera.",
+            verification_status="UNVERIFIED",
             web_resources=web_resources,
             user_custom_notes=user_notes
         )
@@ -94,7 +123,6 @@ This will be used as teaching evidence. Be precise and clear. Plain text only.""
     def _search_corpus(
         self, files: list, concept: str, subject: str
     ) -> Tuple[str, str, str]:
-        """Score paragraphs across all corpus files and return the best match."""
         search_terms = set(concept.replace("_", " ").lower().split())
         if subject:
             search_terms.update(subject.lower().split()[:3])
@@ -141,10 +169,7 @@ This will be used as teaching evidence. Be precise and clear. Plain text only.""
         return best_file, best_para, best_ref
 
     def _refine_excerpt(self, corpus_para: str, concept: str) -> str:
-        """Use Gemini to extract the most relevant sentence(s) from a matched paragraph."""
-        if not self.llm.is_live:
-            return corpus_para
-        if len(corpus_para) < 100:
+        if not self.llm.is_live or len(corpus_para) < 100:
             return corpus_para
         result = self.llm.chat(
             self.SYSTEM_PROMPT_EXTRACT,
@@ -154,10 +179,9 @@ This will be used as teaching evidence. Be precise and clear. Plain text only.""
         return result.strip() if result and len(result) > 20 else corpus_para
 
     def _generate_explanation(self, concept: str, subject: str) -> str:
-        """Fallback: generate a grounded explanation via Gemini when no corpus is found."""
         result = self.llm.chat(
             self.SYSTEM_PROMPT_GENERATE,
-            f"Subject: {subject or 'General'}\nConcept: {concept}\n\nProvide a concise, accurate explanation.",
+            f"Subject: {subject or 'General'}\nConcept: {concept}\n\nProvide a concise explanation.",
             max_tokens=256
         )
         return result.strip() if result and len(result) > 20 else f"Core concept: {concept}"

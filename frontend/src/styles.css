@@ -910,3 +910,54 @@ button:disabled { opacity: .5; cursor: not-allowed; transform: none !important; 
   color: #f87171;
   white-space: pre-wrap;
 }
+
+.plan-change-banner {
+  background: linear-gradient(135deg, #2b1f3d, #1c152a);
+  border: 1px solid #7c4dff55;
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 14px;
+  color: #e0d7ff;
+}
+
+.plan-change-tag {
+  font: 9px 'DM Mono';
+  color: #a855f7;
+  background: #a855f71a;
+  border: 1px solid #a855f744;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-block;
+  margin-bottom: 6px;
+}
+
+.plan-change-banner strong {
+  display: block;
+  font-size: 14px;
+  color: #ffffff;
+  margin-bottom: 4px;
+}
+
+.plan-change-banner p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #cbbdf8;
+  margin: 0;
+}
+
+.execution-mode-badge {
+  font: 9px 'DM Mono';
+  background: #25283d;
+  color: #a4a7c1;
+  border: 1px solid #3c405c;
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin-left: 10px;
+}
+
+.event-time {
+  font: 9px 'DM Mono';
+  color: #62667d;
+  margin-left: 6px;
+}
+

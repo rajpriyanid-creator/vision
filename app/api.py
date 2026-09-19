@@ -1,37 +1,32 @@
-"""FastAPI backend for the VISION adaptive study experience.
-
-Zero hardcoded courses. Dynamic context readiness. Live agent trace.
-All course/concept choices happen at runtime.
+"""
+VISION FastAPI Application — Full-stack REST API for Adaptive Study Engine.
+Zero hardcoded courses. Dynamic prerequisite graphs, agent orchestration,
+and persistent learner state management.
 """
 
 from __future__ import annotations
-
-import glob
 import json
 import os
 from pathlib import Path
 from typing import Any, Optional
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from slice.controller import WorkflowController
 from slice.mongo_state_manager import MongoStateManager
-from slice.state_manager import StateManager
 
 ROOT = Path(__file__).resolve().parent.parent
 
-
-# ─── Request / Response Models ──────────────────────────────────────────────
+# ─── Request Schemas ───────────────────────────────────────────────────────
 
 class StartRequest(BaseModel):
-    student_id: str = Field(min_length=2, max_length=80)
+    student_id: str = Field(default="demo_student", min_length=1, max_length=80)
     subject: str = Field(min_length=2, max_length=120)
     target_concept: str = Field(min_length=2, max_length=160)
     course_id: Optional[str] = Field(default=None, max_length=80)
-    learning_goal: Optional[str] = Field(default=None, max_length=200)
     learner_level: str = Field(default="intermediate", max_length=40)
+    learning_goal: Optional[str] = Field(default="understand", max_length=200)
     user_notes: Optional[str] = Field(default=None, max_length=2000)
 
 
@@ -89,6 +84,11 @@ def _public_session(run_id: str) -> dict[str, Any]:
     if not raw:
         raise HTTPException(status_code=404, detail="Study session not found")
     session = raw["session"]
+    exercise = raw.get("active_exercise")
+    if exercise and isinstance(exercise, dict):
+        exercise = dict(exercise)
+        exercise.pop("expected_answer_hint", None)
+
     response = {
         "run_id": run_id,
         "current_state": session["current_state"],
@@ -99,7 +99,7 @@ def _public_session(run_id: str) -> dict[str, Any]:
         "target_id": raw.get("target_id", session["target_concept"]),
         "dag": raw.get("dag", {}),
         "concept_titles": raw.get("concept_titles", {}),
-        "exercise": raw.get("active_exercise"),
+        "exercise": exercise,
         "teaching_action": raw.get("teaching_action"),
         "resource_selection": raw.get("resource_selection"),
         "human_question": raw.get("human_question"),
@@ -135,8 +135,6 @@ def courses() -> list[dict[str, Any]]:
     """Discover available course fixtures from domain/ directory.
     Always includes a 'custom' entry for typing any subject."""
     result = []
-
-    # Scan domain/ for *.json graph files
     domain_dir = ROOT / "domain"
     for path in sorted(domain_dir.glob("*.json")):
         if path.name.startswith("_") or "rubric" in path.name:
@@ -161,7 +159,6 @@ def courses() -> list[dict[str, Any]]:
         except Exception:
             continue
 
-    # Always add a custom entry
     result.append({
         "course_id": "custom",
         "name": "Custom — type your own",
@@ -330,4 +327,3 @@ else:
     @app.get("/")
     def root() -> dict[str, str]:
         return {"name": "VISION Adaptive Study API", "docs": "/docs"}
-
