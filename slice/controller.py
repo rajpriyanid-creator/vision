@@ -97,12 +97,70 @@ class WorkflowController:
                                      f"Generated DAG for {subject}/{target_concept}",
                                      [], list(course_context.concepts))
 
-        # State 4: PLAN_NEXT_ACTION
+        # State 4: PLAN_NEXT_ACTION & PREREQUISITE READINESS CHECK
         session.current_state = "PLAN_NEXT_ACTION"
         plan = self.supervisor.plan_next_step(student_state, course_context, session)
         session.call_count += 1
 
-        # State 5: RETEACH_PREREQ — First teach the concept before posing a question!
+        direct_prereqs = course_context.dependency_graph.get(target_id, [])
+
+        session_data = {
+            "subject": subject,
+            "target_concept": target_concept,
+            "target_id": target_id,
+            "prereq_chain": [target_id],
+            "concept_titles": concept_titles,
+            "dag": course_context.dependency_graph,
+            "history": [],
+            "taught_concepts": [],
+            "user_notes": user_notes
+        }
+
+        # If direct prerequisites exist, initiate the interactive Prerequisite Readiness Survey!
+        if direct_prereqs:
+            session.current_state = "PREREQ_SURVEY"
+            prereq_survey_data = {
+                "direct_prerequisites": [
+                    {"id": p, "title": concept_titles.get(p, p.replace("_", " ").title())}
+                    for p in direct_prereqs
+                ],
+                "target_concept": target_concept,
+                "target_id": target_id
+            }
+            session_data["prereq_survey_data"] = prereq_survey_data
+
+            session.agent_activities = {
+                "SupervisorAgent": f"Generated CS prerequisite graph. Surveying learner readiness on {len(direct_prereqs)} prerequisites.",
+                "DiagnosticAgent": "Idle — awaiting self-declaration / diagnostic check",
+                "ResourceAgent": "Idle — ready to retrieve materials",
+                "TutorAgent": "Ready — will teach prerequisite if gap is declared",
+                "ExerciseAgent": "Ready — will generate quiz if partially known",
+                "EvaluationAgent": "Ready"
+            }
+
+            self.handoff_recorder.record(
+                run_id, "SupervisorAgent", "Controller", "prereq_readiness_survey",
+                f"Initiated prerequisite readiness check for {target_concept} ({len(direct_prereqs)} prerequisites)",
+                [], direct_prereqs
+            )
+
+            self.state_manager.save_study_session(session, session_data)
+            self._persist_context(run_id, course_context)
+
+            return {
+                "run_id": run_id,
+                "current_state": "PREREQ_SURVEY",
+                "subject": subject,
+                "target_concept": target_concept,
+                "target_id": target_id,
+                "dag": course_context.dependency_graph,
+                "concept_titles": concept_titles,
+                "prereq_survey_data": prereq_survey_data,
+                "session": session.model_dump(),
+                "call_count": session.call_count
+            }
+
+        # If no prerequisites exist (foundational concept), teach target directly
         session.current_state = "INITIAL_TEACHING"
         resource = self.resource_agent.select_resource(run_id, target_id, subject=subject, user_notes=user_notes)
         teaching = self.tutor.reteach(
@@ -120,46 +178,24 @@ class WorkflowController:
         )
         self._event(run_id, "INITIAL_TEACHING", "TutorAgent", "teach_target", "lesson_ready", "Initial lesson delivered before practice")
 
-        # State 6: PRACTICE — generate question to test the lesson just taught
-        exercise = None
-        if not defer_practice:
-            session.current_state = "PRACTICE"
-            exercise = self.exercise_agent.generate_exercise(
-                run_id, target_id, "initial_target", subject=subject,
-                context=f"Initial lesson delivered at {learner_level} level."
-            )
-            session.call_count += 1
-
         session.agent_activities = {
             "SupervisorAgent": f"Generated prerequisite DAG for {subject} / {target_concept}",
             "DiagnosticAgent": "Idle — monitoring learner attempts",
             "ResourceAgent": f"Retrieved resources for {target_concept} ({len(resource.web_resources)} web sources)",
             "TutorAgent": f"Delivered initial lesson mode '{teaching.teaching_mode}' for {target_concept}",
-            "ExerciseAgent": (f"Generated {exercise.question_format.upper()} exercise for {target_concept}" if exercise else "Ready - practice begins when learner chooses it"),
-            "EvaluationAgent": ("Awaiting student response / code submission" if exercise else "Ready - no response yet")
+            "ExerciseAgent": "Ready - practice begins when learner chooses it",
+            "EvaluationAgent": "Ready - no response yet"
         }
 
-        session_data = {
-            "subject": subject,
-            "target_concept": target_concept,
-            "target_id": target_id,
-            "prereq_chain": [target_id],
-            "concept_titles": concept_titles,
-            "teaching_action": teaching.model_dump(),
-            "resource_selection": resource.model_dump(),
-            "dag": course_context.dependency_graph,
-            "history": [],
-            "taught_concepts": []
-        }
-        if exercise:
-            session_data["active_exercise"] = exercise.model_dump()
+        session_data["teaching_action"] = teaching.model_dump()
+        session_data["resource_selection"] = resource.model_dump()
 
         self.state_manager.save_study_session(session, session_data)
         self._persist_context(run_id, course_context)
 
         return {
             "run_id": run_id,
-            "current_state": ("PRACTICE" if exercise else "INITIAL_TEACHING"),
+            "current_state": "INITIAL_TEACHING",
             "subject": subject,
             "target_concept": target_concept,
             "target_id": target_id,
@@ -170,6 +206,264 @@ class WorkflowController:
             "session": session.model_dump(),
             "call_count": session.call_count
         }
+
+    # ──────────────────────────── Prerequisite Survey & Quiz ─────────────────
+
+    def submit_prereq_survey(self, run_id: str, survey_responses: Dict[str, str]) -> Dict[str, Any]:
+        """Process student self-declaration for prerequisites: 'yes', 'partially', 'no'."""
+        raw = self.state_manager.get_study_session(run_id)
+        if not raw:
+            raise ValueError(f"Session {run_id} not found.")
+
+        session = StudySession(**raw["session"])
+        data = {k: v for k, v in raw.items() if k != "session"}
+        student_state = self.state_manager.get_or_create_student_state(session.student_id, session.course_id)
+
+        data["survey_responses"] = survey_responses
+        subject = data.get("subject", "")
+        concept_titles = data.get("concept_titles", {})
+        dag = data.get("dag", {})
+
+        no_prereqs = [p for p, ans in survey_responses.items() if ans.lower() == "no"]
+        partial_prereqs = [p for p, ans in survey_responses.items() if ans.lower() == "partially"]
+        yes_prereqs = [p for p, ans in survey_responses.items() if ans.lower() == "yes"]
+
+        # Track mastered prerequisites
+        for y in yes_prereqs:
+            if y not in student_state.mastered:
+                student_state.mastered.append(y)
+        self.state_manager.save_student_state(student_state)
+
+        # ── Branch 1: "No" self-declaration -> Pivot to teach prerequisite immediately ──
+        if no_prereqs:
+            chosen_prereq = no_prereqs[0]
+            chosen_title = concept_titles.get(chosen_prereq, chosen_prereq.replace("_", " ").title())
+
+            data["prereq_chain"] = [data["target_id"], chosen_prereq]
+            data["active_concept"] = chosen_prereq
+            session.current_state = "INITIAL_TEACHING"
+
+            resource = self.resource_agent.select_resource(run_id, chosen_prereq, subject=subject, user_notes=data.get("user_notes"))
+            teaching = self.tutor.reteach(
+                run_id=run_id,
+                resource=resource,
+                student_state=student_state,
+                target_concept=data["target_concept"],
+                subject=subject
+            )
+            session.call_count += 1
+            data["teaching_action"] = teaching.model_dump()
+            data["resource_selection"] = resource.model_dump()
+
+            session.agent_activities["SupervisorAgent"] = f"Pivoted topic to missing prerequisite '{chosen_title}' based on self-declaration."
+            session.agent_activities["TutorAgent"] = f"Delivering lesson for prerequisite '{chosen_title}'."
+
+            self.handoff_recorder.record(
+                run_id, "SupervisorAgent", "TutorAgent", "pivot_to_prereq",
+                f"Learner self-declared 'No' for {chosen_title}. Switching topic to teach prerequisite.",
+                [data["target_id"]], [chosen_prereq]
+            )
+
+            self.state_manager.save_study_session(session, data)
+            return self._resp(
+                run_id, "INITIAL_TEACHING", session,
+                message=f"📚 Prerequisite gap acknowledged: '{chosen_title}'. Let's master this foundation first!",
+                teaching_action=teaching.model_dump(),
+                resource_selection=resource.model_dump(),
+                dag=dag,
+                concept_titles=concept_titles,
+                target_concept=data["target_concept"],
+                active_concept=chosen_prereq,
+                survey_responses=survey_responses
+            )
+
+        # ── Branch 2: "Partially" self-declaration -> Serve 2-question Diagnostic Quiz ──
+        elif partial_prereqs:
+            chosen_prereq = partial_prereqs[0]
+            chosen_title = concept_titles.get(chosen_prereq, chosen_prereq.replace("_", " ").title())
+
+            quiz_data = self.supervisor.generate_prereq_quiz(chosen_prereq, subject=subject, count=2)
+            session.call_count += 1
+
+            data["active_prereq_quiz"] = quiz_data
+            data["pending_partial_prereqs"] = partial_prereqs[1:]
+            session.current_state = "PREREQ_QUIZ"
+
+            session.agent_activities["SupervisorAgent"] = f"Prepared diagnostic quiz for partially known '{chosen_title}'."
+            session.agent_activities["ExerciseAgent"] = f"2-question diagnostic readiness check ready for '{chosen_title}'."
+
+            self.handoff_recorder.record(
+                run_id, "SupervisorAgent", "ExerciseAgent", "prereq_quiz",
+                f"Learner self-declared 'Partially' for {chosen_title}. Serving diagnostic quiz.",
+                [chosen_prereq], [f"quiz_{len(quiz_data.get('questions', []))}_questions"]
+            )
+
+            self.state_manager.save_study_session(session, data)
+            return self._resp(
+                run_id, "PREREQ_QUIZ", session,
+                message=f"⚡ Prerequisite Check: 2 quick questions on '{chosen_title}' to confirm readiness (70% pass mark).",
+                prereq_quiz=quiz_data,
+                dag=dag,
+                concept_titles=concept_titles,
+                target_concept=data["target_concept"],
+                survey_responses=survey_responses
+            )
+
+        # ── Branch 3: All "Yes" -> Proceed to Target Concept Lesson ──
+        else:
+            session.current_state = "INITIAL_TEACHING"
+            resource = self.resource_agent.select_resource(run_id, data["target_id"], subject=subject, user_notes=data.get("user_notes"))
+            teaching = self.tutor.reteach(
+                run_id=run_id,
+                resource=resource,
+                student_state=student_state,
+                target_concept=data["target_concept"],
+                subject=subject
+            )
+            session.call_count += 1
+            data["teaching_action"] = teaching.model_dump()
+            data["resource_selection"] = resource.model_dump()
+
+            session.agent_activities["SupervisorAgent"] = "All prerequisites confirmed known. Unlocking target concept."
+            session.agent_activities["TutorAgent"] = f"Teaching target concept '{data['target_concept']}'."
+
+            self.handoff_recorder.record(
+                run_id, "SupervisorAgent", "TutorAgent", "prereqs_confirmed",
+                "All prerequisites confirmed known by learner. Proceeding to target concept.",
+                list(survey_responses.keys()), [data["target_id"]]
+            )
+
+            self.state_manager.save_study_session(session, data)
+            return self._resp(
+                run_id, "INITIAL_TEACHING", session,
+                message=f"🚀 Prerequisites verified! Ready to learn '{data['target_concept']}'.",
+                teaching_action=teaching.model_dump(),
+                resource_selection=resource.model_dump(),
+                dag=dag,
+                concept_titles=concept_titles,
+                target_concept=data["target_concept"],
+                survey_responses=survey_responses
+            )
+
+    def submit_prereq_quiz(self, run_id: str, answers: Dict[str, Any]) -> Dict[str, Any]:
+        """Evaluate answers to the prerequisite diagnostic quiz and branch based on the 70% threshold."""
+        raw = self.state_manager.get_study_session(run_id)
+        if not raw:
+            raise ValueError(f"Session {run_id} not found.")
+
+        session = StudySession(**raw["session"])
+        data = {k: v for k, v in raw.items() if k != "session"}
+        student_state = self.state_manager.get_or_create_student_state(session.student_id, session.course_id)
+
+        quiz_data = data.get("active_prereq_quiz", {})
+        concept = quiz_data.get("concept", data.get("target_id"))
+        concept_title = data.get("concept_titles", {}).get(concept, concept.replace("_", " ").title())
+        subject = data.get("subject", "")
+        dag = data.get("dag", {})
+        concept_titles = data.get("concept_titles", {})
+
+        eval_result = self.supervisor.evaluate_prereq_quiz(concept, quiz_data, answers)
+        score = eval_result.get("score", 0.0)
+        passed = eval_result.get("passed", False)
+        data["last_quiz_eval"] = eval_result
+
+        if passed:
+            # Score >= 70%: Prerequisite verified!
+            if concept not in student_state.mastered:
+                student_state.mastered.append(concept)
+            if concept in student_state.weak:
+                student_state.weak.remove(concept)
+            self.state_manager.save_student_state(student_state)
+
+            pending = data.get("pending_partial_prereqs", [])
+            if pending:
+                next_prereq = pending[0]
+                next_title = concept_titles.get(next_prereq, next_prereq.replace("_", " ").title())
+                next_quiz = self.supervisor.generate_prereq_quiz(next_prereq, subject=subject, count=2)
+                session.call_count += 1
+                data["active_prereq_quiz"] = next_quiz
+                data["pending_partial_prereqs"] = pending[1:]
+                session.current_state = "PREREQ_QUIZ"
+
+                self.state_manager.save_study_session(session, data)
+                return self._resp(
+                    run_id, "PREREQ_QUIZ", session,
+                    message=f"✅ '{concept_title}' passed ({score}% >= 70%)! Now testing next prerequisite: '{next_title}'.",
+                    prereq_quiz=next_quiz,
+                    quiz_eval=eval_result,
+                    dag=dag,
+                    concept_titles=concept_titles
+                )
+            else:
+                # All prerequisite checks passed -> Unlock Target Concept
+                session.current_state = "INITIAL_TEACHING"
+                resource = self.resource_agent.select_resource(run_id, data["target_id"], subject=subject, user_notes=data.get("user_notes"))
+                teaching = self.tutor.reteach(
+                    run_id=run_id,
+                    resource=resource,
+                    student_state=student_state,
+                    target_concept=data["target_concept"],
+                    subject=subject
+                )
+                session.call_count += 1
+                data["teaching_action"] = teaching.model_dump()
+                data["resource_selection"] = resource.model_dump()
+
+                self.handoff_recorder.record(
+                    run_id, "SupervisorAgent", "TutorAgent", "prereq_quiz_passed",
+                    f"Learner passed prerequisite quiz on {concept_title} ({score}% >= 70%). Proceeding to target concept.",
+                    [concept], [data["target_id"]]
+                )
+
+                self.state_manager.save_study_session(session, data)
+                return self._resp(
+                    run_id, "INITIAL_TEACHING", session,
+                    message=f"🎉 Prerequisite verified ({score}% >= 70%)! Ready to learn '{data['target_concept']}'.",
+                    teaching_action=teaching.model_dump(),
+                    resource_selection=resource.model_dump(),
+                    quiz_eval=eval_result,
+                    dag=dag,
+                    concept_titles=concept_titles
+                )
+        else:
+            # Score < 70%: Gap confirmed -> Pivot to teach this prerequisite thoroughly
+            if concept not in student_state.weak:
+                student_state.weak.append(concept)
+            self.state_manager.save_student_state(student_state)
+
+            data["prereq_chain"] = [data["target_id"], concept]
+            data["active_concept"] = concept
+            session.current_state = "INITIAL_TEACHING"
+
+            resource = self.resource_agent.select_resource(run_id, concept, subject=subject, user_notes=data.get("user_notes"))
+            teaching = self.tutor.reteach(
+                run_id=run_id,
+                resource=resource,
+                student_state=student_state,
+                target_concept=data["target_concept"],
+                subject=subject
+            )
+            session.call_count += 1
+            data["teaching_action"] = teaching.model_dump()
+            data["resource_selection"] = resource.model_dump()
+
+            self.handoff_recorder.record(
+                run_id, "SupervisorAgent", "TutorAgent", "prereq_quiz_failed",
+                f"Learner scored {score}% on {concept_title} (< 70% threshold). Switching topic to thoroughly teach prerequisite.",
+                [concept], [teaching.explanation_text[:80]]
+            )
+
+            self.state_manager.save_study_session(session, data)
+            return self._resp(
+                run_id, "INITIAL_TEACHING", session,
+                message=f"⚠️ Scored {score}% on '{concept_title}' (below 70% threshold). Let's thoroughly master '{concept_title}' first!",
+                teaching_action=teaching.model_dump(),
+                resource_selection=resource.model_dump(),
+                quiz_eval=eval_result,
+                dag=dag,
+                concept_titles=concept_titles,
+                active_concept=concept
+            )
 
     # ──────────────────────────── Answer Submission ──────────────────────────
 

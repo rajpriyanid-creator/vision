@@ -17,3 +17,4 @@ out/
 bakeoff_raw.txt
 .DS_Store
 prompts/
+ignore.txt

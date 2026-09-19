@@ -283,7 +283,7 @@ This section maintains live symbol-to-line references for automated verification
 | Evaluation Agent | `agents/evaluation.py:12` - `EvaluationAgent` | Rubric-based answer evaluator |
 | Diagnostic Agent | `agents/diagnostic.py:13` - `DiagnosticAgent` | Root-cause gap analysis agent |
 | Resource Agent | `agents/resource.py:16` - `ResourceAgent` | Excerpt quote retriever & verifier |
-| FastAPI App | `app/api.py:71` - `app` | Live REST API application server |
+| FastAPI App | `app/api.py:81` - `app` | Live REST API application server |
 | Budget Control | `slice/budget.py:39` - `Budget` | Spend limit & call budget tracking |
 | Record Store | `slice/store.py:83` - `Store` | Append-only execution record store |
 | Context Runner | `slice/runner.py:31` - `Context` | Slice execution context runner |

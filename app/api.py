@@ -40,6 +40,16 @@ class PracticeRequest(BaseModel):
     skip_lesson: bool = False
 
 
+class PrereqSurveyRequest(BaseModel):
+    run_id: str = Field(min_length=4, max_length=80)
+    survey_responses: dict[str, str] = Field(default_factory=dict)
+
+
+class PrereqQuizRequest(BaseModel):
+    run_id: str = Field(min_length=4, max_length=80)
+    answers: dict[str, Any] = Field(default_factory=dict)
+
+
 class StepRequest(BaseModel):
     run_id: str = Field(min_length=4, max_length=80)
     student_answer: Optional[str] = Field(default="", max_length=4000)
@@ -97,8 +107,13 @@ def _public_session(run_id: str) -> dict[str, Any]:
         "subject": raw.get("subject", ""),
         "target_concept": raw.get("target_concept", session["target_concept"]),
         "target_id": raw.get("target_id", session["target_concept"]),
+        "active_concept": raw.get("active_concept"),
         "dag": raw.get("dag", {}),
         "concept_titles": raw.get("concept_titles", {}),
+        "prereq_survey_data": raw.get("prereq_survey_data"),
+        "prereq_quiz": raw.get("active_prereq_quiz"),
+        "quiz_eval": raw.get("last_quiz_eval"),
+        "survey_responses": raw.get("survey_responses"),
         "exercise": raw.get("active_exercise"),
         "teaching_action": raw.get("teaching_action"),
         "resource_selection": raw.get("resource_selection"),
@@ -206,6 +221,36 @@ def start_session(payload: StartRequest) -> dict[str, Any]:
             "handoffs": storage.get_handoffs(result["run_id"]),
             "storage": storage.backend,
         }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/session/prereq-survey")
+def prereq_survey(payload: PrereqSurveyRequest) -> dict[str, Any]:
+    try:
+        result = controller.submit_prereq_survey(payload.run_id, payload.survey_responses)
+        return {
+            **result,
+            "handoffs": storage.get_handoffs(payload.run_id),
+            "storage": storage.backend,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/session/prereq-quiz")
+def prereq_quiz(payload: PrereqQuizRequest) -> dict[str, Any]:
+    try:
+        result = controller.submit_prereq_quiz(payload.run_id, payload.answers)
+        return {
+            **result,
+            "handoffs": storage.get_handoffs(payload.run_id),
+            "storage": storage.backend,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

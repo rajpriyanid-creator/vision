@@ -16,8 +16,16 @@ def test_happy_path_mastery(tmp_path):
     controller = WorkflowController(db_path=db_file)
 
     res = controller.start_session("student_test_1", "ds_101", "binary_tree_inorder_traversal")
-    assert res["current_state"] == "PRACTICE"
     run_id = res["run_id"]
+
+    if res["current_state"] == "PREREQ_SURVEY":
+        survey_resp = {p["id"]: "yes" for p in res["prereq_survey_data"]["direct_prerequisites"]}
+        res = controller.submit_prereq_survey(run_id, survey_resp)
+
+    if res["current_state"] == "INITIAL_TEACHING":
+        res = controller.begin_practice(run_id)
+
+    assert res["current_state"] == "PRACTICE"
 
     # Submit correct answer directly
     res_ans = controller.submit_answer(run_id, "b, a, c")
@@ -30,6 +38,13 @@ def test_prerequisite_repair_loop(tmp_path):
 
     res = controller.start_session("student_test_2", "ds_101", "binary_tree_inorder_traversal")
     run_id = res["run_id"]
+
+    if res["current_state"] == "PREREQ_SURVEY":
+        survey_resp = {p["id"]: "yes" for p in res["prereq_survey_data"]["direct_prerequisites"]}
+        res = controller.submit_prereq_survey(run_id, survey_resp)
+
+    if res["current_state"] == "INITIAL_TEACHING":
+        res = controller.begin_practice(run_id)
 
     # Submit wrong answer — triggers diagnosis and reteaching
     res_ans1 = controller.submit_answer(run_id, "I tried calling left node but got segmentation fault NULL reference")
@@ -66,11 +81,13 @@ def test_human_escalation_pause_resume(tmp_path):
     res = controller.start_session("student_test_3", "ds_101", "binary_tree_inorder_traversal")
     run_id = res["run_id"]
 
-    # Submit invalid edge attempt to trigger WAITING_FOR_HUMAN
-    # We simulate setting revision_count to 3 directly to test human pause
-    data = controller.state_manager.get_study_session(run_id)
-    session_obj = controller.state_manager.get_study_session(run_id)
-    
+    if res["current_state"] == "PREREQ_SURVEY":
+        survey_resp = {p["id"]: "yes" for p in res["prereq_survey_data"]["direct_prerequisites"]}
+        res = controller.submit_prereq_survey(run_id, survey_resp)
+
+    if res["current_state"] == "INITIAL_TEACHING":
+        res = controller.begin_practice(run_id)
+
     # 3 consecutive wrong answers on deep prerequisites
     controller.submit_answer(run_id, "wrong answer 1 struct node definition")
     controller.submit_answer(run_id, "wrong answer 2 recursion stack")
