@@ -1,5 +1,6 @@
 {
   "course_id": "data_structures",
+  "course_name": "Data Structures & Algorithms",
   "root_concept": "binary_tree_inorder_traversal",
   "nodes": [
     {

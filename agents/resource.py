@@ -60,6 +60,15 @@ This will be used as teaching evidence. Be precise and clear. Plain text only.""
                 )
 
         # No corpus or no match — generate AI explanation
+        if not self.llm.is_live:
+            return ResourceSelection(
+                run_id=run_id,
+                concept=concept,
+                source_id="none",
+                excerpt_quote="",
+                verification_status="could_not_establish",
+            )
+
         excerpt = self._generate_explanation(concept, subject)
         return ResourceSelection(
             run_id=run_id,
@@ -120,6 +129,8 @@ This will be used as teaching evidence. Be precise and clear. Plain text only.""
 
     def _refine_excerpt(self, corpus_para: str, concept: str) -> str:
         """Use Gemini to extract the most relevant sentence(s) from a matched paragraph."""
+        if not self.llm.is_live:
+            return corpus_para
         if len(corpus_para) < 100:
             return corpus_para
         result = self.llm.chat(

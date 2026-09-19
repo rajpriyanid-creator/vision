@@ -48,6 +48,24 @@ Respond with JSON only:
         subject: str = "",
         context: str = ""
     ) -> Exercise:
+        if not self.llm.is_live:
+            demo_questions = {
+                ("binary_tree_inorder_traversal", "initial_target"): "For a binary tree with left child B, root A, and right child C, what is the output sequence of an inorder traversal?",
+                ("binary_tree_inorder_traversal", "target_retest"): "For a binary tree node A with left child B and right child C, give the inorder traversal sequence and explain the order briefly.",
+                ("binary_tree_inorder_traversal", "tie_breaker"): "Before processing the current root node in inorder traversal, which subtree must be completely visited?",
+                ("recursion", "prereq_recheck"): "In a recursive tree traversal, what happens immediately when the current node pointer is NULL?",
+                ("call_stack_reasoning", "prereq_recheck"): "When a recursive call reaches its base case, how does control return through the call stack?",
+                ("tree_traversal_order", "prereq_recheck"): "What is the order of operations in an inorder traversal?",
+            }
+            question = demo_questions.get((concept, exercise_type), f"Explain {concept.replace('_', ' ')} in your own words and give one example.")
+            return Exercise(
+                run_id=run_id,
+                concept=concept,
+                exercise_type=exercise_type,
+                question_text=question,
+                rubric_ref=f"dynamic:{subject}:{concept}",
+            )
+
         user_prompt = f"""Subject: {subject or 'General'}
 Concept to test: {concept}
 Exercise type: {exercise_type}

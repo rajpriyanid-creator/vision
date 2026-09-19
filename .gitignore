@@ -8,3 +8,5 @@ venv/
 node_modules/
 *.log
 evidence/raw/
+vision.db
+frontend/dist/

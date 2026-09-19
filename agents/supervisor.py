@@ -8,6 +8,8 @@ from __future__ import annotations
 from typing import Dict, Any, List
 from slice.state_manager import StudentState, CourseContext, StudySession
 from slice.llm_client import LLMClient
+import json
+from pathlib import Path
 
 
 class SupervisorAgent:
@@ -58,6 +60,24 @@ Return JSON:
 
     def build_course_context(self, subject: str, target_concept: str, course_id: str) -> CourseContext:
         """Dynamically generates a prerequisite DAG for any subject/concept using Gemini."""
+        # The curated demo context is the source of truth for the hackathon
+        # walkthrough. Loading it locally also makes the app usable without a
+        # network call or an API key.
+        target_id = _to_id(target_concept)
+        domain_graph = Path(__file__).resolve().parent.parent / "domain" / "prerequisite_graph.json"
+        if not self.llm.is_live and (target_id == "binary_tree_inorder_traversal" or "data structure" in subject.lower()):
+            payload = json.loads(domain_graph.read_text(encoding="utf-8"))
+            nodes = payload["nodes"]
+            graph = {node["id"]: node.get("prerequisites", []) for node in nodes}
+            titles = {node["id"]: node.get("title", node["id"]) for node in nodes}
+            return CourseContext(
+                course_id=course_id,
+                course_name="Data Structures",
+                concepts=list(graph),
+                dependency_graph=graph,
+                source_ids=["data_structures_notes.md"],
+            ), titles
+
         user_prompt = f"""Subject: {subject}
 Target concept to master: {target_concept}
 
@@ -110,6 +130,14 @@ Weak: {student_state.weak}
 Call count so far: {session.call_count}
 
 Plan the next step. Return JSON."""
+
+        if not self.llm.is_live:
+            return {
+                "target_concept": session.target_concept,
+                "next_agent": "Exercise",
+                "action": "generate_initial_target_question",
+                "reasoning": "Start with a low-stakes target check before deciding whether a prerequisite needs repair.",
+            }
 
         result = self.llm.chat_json(self.SYSTEM_PROMPT_PLAN, user_prompt, max_tokens=256)
         return {

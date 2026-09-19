@@ -1,0 +1,11 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - vision-mongo-data:/data/db
+
+volumes:
+  vision-mongo-data:

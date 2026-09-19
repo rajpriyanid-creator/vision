@@ -303,3 +303,20 @@ class StateManager:
                     "timestamp": r[6]
                 } for r in rows
             ]
+
+    def get_student_sessions(self, student_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT run_id, course_id, target_concept, status, current_state, created_at "
+                "FROM study_sessions WHERE student_id = ? ORDER BY created_at DESC LIMIT ?",
+                (student_id, limit),
+            )
+            rows = cursor.fetchall()
+            return [
+                dict(zip(
+                    ("run_id", "course_id", "target_concept", "status", "current_state", "created_at"),
+                    row
+                ))
+                for row in rows
+            ]

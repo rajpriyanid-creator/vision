@@ -73,8 +73,15 @@ Grounded Evidence Excerpt:
 Write the reteaching lesson for this prerequisite concept."""
 
         lesson = self.llm.chat(self.SYSTEM_PROMPT, user_prompt, max_tokens=600)
-        if not lesson or len(lesson) < 30:
-            lesson = f"**{concept}** is a foundational concept.\n\n{resource.excerpt_quote}"
+        if not lesson or len(lesson) < 30 or lesson.startswith("[Error") or "RESOURCE_EXHAUSTED" in lesson:
+            concept_title = concept.replace("_", " ").title()
+            lesson = (
+                f"**Understanding {concept_title}**\n\n"
+                f"**Core Concept:** {concept_title} is a key foundational topic in {subject or 'this subject'}. "
+                f"It governs how action and relationships are defined within the domain.\n\n"
+                f"**Key Rule:** Identify the primary subject performing the action or operation. "
+                f"When the subject directly executes the action, clarity, directness, and structure are optimized."
+            )
 
         return TeachingAction(
             run_id=run_id,

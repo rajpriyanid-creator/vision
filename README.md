@@ -9,6 +9,35 @@
 
 This repository contains the authoritative specification, architecture, contracts, and documentation for **VISION**. The event build demonstrates a complete multi-agent prerequisite debugging loop: one student, one bounded course context, persistent learner state, diagnostic tie-breakers, grounded reteaching, targeted re-testing, backward prerequisite loop, human pause/resume, and cross-course preference persistence.
 
+## Run locally on Windows (without Docker)
+
+The application does not require Docker. Start a local MongoDB service if MongoDB is
+installed on this machine, then run the API and frontend in separate terminals:
+
+```powershell
+# Check whether MongoDB is installed and running
+Get-Service MongoDB
+
+# If installed but stopped, start it from an elevated PowerShell terminal
+Start-Service MongoDB
+
+# Terminal 1 — backend
+python -m pip install -r requirements.txt
+python -m uvicorn app.api:app --reload --port 8000
+
+# Terminal 2 — frontend
+Set-Location frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. The backend API and interactive Swagger docs are available
+at `http://localhost:8000` and `http://localhost:8000/docs`.
+
+If MongoDB is not installed or cannot be started, VISION automatically uses the local
+SQLite fallback (`vision.db`) for development. To require MongoDB instead, set
+`VISION_MONGO_REQUIRED=true` in `.env`.
+
 ---
 
 ## Final Architecture Overview
