@@ -84,9 +84,9 @@ This will be used as teaching evidence. Be precise and clear. Plain text only.""
         return ResourceSelection(
             run_id=run_id,
             concept=concept,
-            source_id="web-discovery-agent",
+            source_id="ai-generated-or-learner-notes",
             excerpt_quote=excerpt,
-            verification_status="verified",
+            verification_status="could_not_establish" if not user_notes else "verified",
             web_resources=web_resources,
             user_custom_notes=user_notes
         )

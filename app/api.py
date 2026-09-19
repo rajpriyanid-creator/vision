@@ -31,6 +31,13 @@ class StartRequest(BaseModel):
     target_concept: str = Field(min_length=2, max_length=160)
     course_id: Optional[str] = Field(default=None, max_length=80)
     learning_goal: Optional[str] = Field(default=None, max_length=200)
+    learner_level: str = Field(default="intermediate", max_length=40)
+    user_notes: Optional[str] = Field(default=None, max_length=2000)
+
+
+class PracticeRequest(BaseModel):
+    run_id: str = Field(min_length=4, max_length=80)
+    skip_lesson: bool = False
 
 
 class StepRequest(BaseModel):
@@ -100,6 +107,7 @@ def _public_session(run_id: str) -> dict[str, Any]:
         "taught_concepts": raw.get("taught_concepts", []),
         "prereq_chain": raw.get("prereq_chain", []),
         "handoffs": storage.get_handoffs(run_id),
+        "events": storage.get_events(run_id) if hasattr(storage, "get_events") else [],
     }
     return {key: value for key, value in response.items() if value is not None}
 
@@ -188,6 +196,10 @@ def start_session(payload: StartRequest) -> dict[str, Any]:
             subject=payload.subject.strip(),
             target_concept=payload.target_concept.strip(),
             course_id=payload.course_id,
+            learner_level=payload.learner_level.strip().lower(),
+            learning_goal=(payload.learning_goal or "understand").strip(),
+            user_notes=payload.user_notes,
+            defer_practice=True,
         )
         return {
             **result,
@@ -195,6 +207,15 @@ def start_session(payload: StartRequest) -> dict[str, Any]:
             "storage": storage.backend,
         }
     except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/session/begin-practice")
+def begin_practice(payload: PracticeRequest) -> dict[str, Any]:
+    try:
+        result = controller.begin_practice(payload.run_id, payload.skip_lesson)
+        return {**result, "handoffs": storage.get_handoffs(payload.run_id), "storage": storage.backend}
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -272,6 +293,8 @@ def session_why(run_id: str) -> dict[str, Any]:
 @app.get("/api/session/{run_id}/events")
 def session_events(run_id: str) -> list[dict[str, Any]]:
     """Return the full agent handoff trace for a session."""
+    if hasattr(storage, "get_events"):
+        return storage.get_events(run_id)
     return storage.get_handoffs(run_id)
 
 

@@ -53,7 +53,7 @@ Respond with plain text (formatted markdown is OK). No JSON."""
         concept_title = concept.replace("_", " ").title()
 
         # If resource is missing or unverified, do NOT waste LLM API keys
-        if not resource.excerpt_quote or resource.verification_status != "verified" or "no approved course" in resource.excerpt_quote.lower():
+        if not resource.excerpt_quote or "no approved course" in resource.excerpt_quote.lower():
             return TeachingAction(
                 run_id=run_id,
                 concept=concept,
@@ -97,7 +97,7 @@ Write the reteaching lesson for this prerequisite concept."""
         return TeachingAction(
             run_id=run_id,
             concept=concept,
-            teaching_mode=selected_mode,
+            teaching_mode=("ai_generated" if resource.verification_status != "verified" else selected_mode),
             explanation_text=lesson,
             evidence_ref=resource.source_id
         )

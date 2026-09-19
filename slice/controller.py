@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from slice.state_manager import (
@@ -57,7 +58,11 @@ class WorkflowController:
         student_id: str,
         subject: str,
         target_concept: str,
-        course_id: Optional[str] = None
+        course_id: Optional[str] = None,
+        learner_level: str = "intermediate",
+        learning_goal: str = "understand",
+        user_notes: Optional[str] = None,
+        defer_practice: bool = False,
     ) -> Dict[str, Any]:
         """
         Start a fully dynamic study session for ANY subject and concept.
@@ -73,7 +78,9 @@ class WorkflowController:
             student_id=student_id,
             course_id=course_id,
             target_concept=target_id,
-            current_state="START_STUDY"
+            current_state="START_STUDY",
+            learner_level=learner_level,
+            learning_goal=learning_goal,
         )
 
         # State 2: READ_LEARNER_STATE
@@ -96,8 +103,8 @@ class WorkflowController:
         session.call_count += 1
 
         # State 5: RETEACH_PREREQ — First teach the concept before posing a question!
-        session.current_state = "RETEACH_PREREQ"
-        resource = self.resource_agent.select_resource(run_id, target_id, subject=subject)
+        session.current_state = "INITIAL_TEACHING"
+        resource = self.resource_agent.select_resource(run_id, target_id, subject=subject, user_notes=user_notes)
         teaching = self.tutor.reteach(
             run_id=run_id,
             resource=resource,
@@ -111,24 +118,25 @@ class WorkflowController:
             f"Delivered initial lesson for {target_concept}",
             [target_id], [teaching.explanation_text[:80]]
         )
+        self._event(run_id, "INITIAL_TEACHING", "TutorAgent", "teach_target", "lesson_ready", "Initial lesson delivered before practice")
 
         # State 6: PRACTICE — generate question to test the lesson just taught
-        session.current_state = "PRACTICE"
-        exercise = self.exercise_agent.generate_exercise(
-            run_id, target_id, "initial_target",
-            subject=subject, context=f"Initial lesson delivered: '{teaching.explanation_text[:100]}'. Test student understanding."
-        )
-        session.call_count += 1
-        self.handoff_recorder.record(run_id, "ExerciseAgent", "Controller", "initial_question",
-                                     plan["reasoning"], [target_id], [exercise.question_text[:80]])
+        exercise = None
+        if not defer_practice:
+            session.current_state = "PRACTICE"
+            exercise = self.exercise_agent.generate_exercise(
+                run_id, target_id, "initial_target", subject=subject,
+                context=f"Initial lesson delivered at {learner_level} level."
+            )
+            session.call_count += 1
 
         session.agent_activities = {
             "SupervisorAgent": f"Generated prerequisite DAG for {subject} / {target_concept}",
             "DiagnosticAgent": "Idle — monitoring learner attempts",
             "ResourceAgent": f"Retrieved resources for {target_concept} ({len(resource.web_resources)} web sources)",
             "TutorAgent": f"Delivered initial lesson mode '{teaching.teaching_mode}' for {target_concept}",
-            "ExerciseAgent": f"Generated {exercise.question_format.upper()} exercise for {target_concept}",
-            "EvaluationAgent": "Awaiting student response / code submission"
+            "ExerciseAgent": (f"Generated {exercise.question_format.upper()} exercise for {target_concept}" if exercise else "Ready - practice begins when learner chooses it"),
+            "EvaluationAgent": ("Awaiting student response / code submission" if exercise else "Ready - no response yet")
         }
 
         session_data = {
@@ -137,20 +145,21 @@ class WorkflowController:
             "target_id": target_id,
             "prereq_chain": [target_id],
             "concept_titles": concept_titles,
-            "active_exercise": exercise.model_dump(),
             "teaching_action": teaching.model_dump(),
             "resource_selection": resource.model_dump(),
             "dag": course_context.dependency_graph,
             "history": [],
             "taught_concepts": []
         }
+        if exercise:
+            session_data["active_exercise"] = exercise.model_dump()
 
         self.state_manager.save_study_session(session, session_data)
         self._persist_context(run_id, course_context)
 
         return {
             "run_id": run_id,
-            "current_state": "PRACTICE",
+            "current_state": ("PRACTICE" if exercise else "INITIAL_TEACHING"),
             "subject": subject,
             "target_concept": target_concept,
             "target_id": target_id,
@@ -158,12 +167,37 @@ class WorkflowController:
             "concept_titles": concept_titles,
             "teaching_action": teaching.model_dump(),
             "resource_selection": resource.model_dump(),
-            "exercise": exercise.model_dump(),
             "session": session.model_dump(),
             "call_count": session.call_count
         }
 
     # ──────────────────────────── Answer Submission ──────────────────────────
+
+    def begin_practice(self, run_id: str, skip_lesson: bool = False) -> Dict[str, Any]:
+        """Move into assessment only after an explicit learner action."""
+        raw = self.state_manager.get_study_session(run_id)
+        if not raw:
+            raise ValueError(f"Session {run_id} not found.")
+        session = StudySession(**raw["session"])
+        data = {k: v for k, v in raw.items() if k != "session"}
+        if session.current_state not in {"INITIAL_TEACHING", "PRACTICE"}:
+            raise ValueError(f"Cannot begin practice from {session.current_state}.")
+        session.learning_phase_completed = True
+        session.lesson_skipped = bool(skip_lesson)
+        session.current_state = "GENERATE_EXERCISE"
+        exercise = self.exercise_agent.generate_exercise(
+            run_id, data["target_id"], "initial_target", subject=data.get("subject", ""),
+            context=f"Learner level: {session.learner_level}; goal: {session.learning_goal}. Initial lesson completed."
+        )
+        session.call_count += 1
+        data["active_exercise"] = exercise.model_dump()
+        session.agent_activities["ExerciseAgent"] = f"Generated {exercise.question_format.upper()} exercise for {data['target_concept']}"
+        session.agent_activities["EvaluationAgent"] = "Ready - awaiting first attempt"
+        session.current_state = "PRACTICE"
+        self.handoff_recorder.record(run_id, "Controller", "ExerciseAgent", "begin_practice", "Learner explicitly started practice", [data["target_id"]], [exercise.question_text[:80]])
+        self._event(run_id, "GENERATE_EXERCISE", "ExerciseAgent", "begin_practice", "question_ready", "Learner explicitly started practice")
+        self.state_manager.save_study_session(session, data)
+        return self._resp(run_id, "PRACTICE", session, exercise=exercise.model_dump(), teaching_action=data.get("teaching_action"), message="Practice started. Your first question is ready.")
 
     def submit_answer(
         self,
@@ -182,6 +216,9 @@ class WorkflowController:
         session_info = raw["session"]
         session = StudySession(**session_info)
         data = {k: v for k, v in raw.items() if k != "session"}
+
+        if not data.get("active_exercise"):
+            raise ValueError("Practice has not started. Complete the lesson and begin practice first.")
 
         student_state = self.state_manager.get_or_create_student_state(
             session.student_id, session.course_id
@@ -212,12 +249,14 @@ class WorkflowController:
             test_results=test_results or []
         )
         data["history"].append(attempt.model_dump())
+        session.attempt_count += 1
 
         # State: EVALUATE
         session.current_state = "EVALUATE"
         session.agent_activities["EvaluationAgent"] = f"Evaluating response ({active_ex.get('question_format', 'free_text')})"
         evaluation = self.evaluation_agent.evaluate_attempt(attempt)
         session.call_count += 1
+        self._event(run_id, "EVALUATE", "EvaluationAgent", "evaluate_attempt", evaluation.status, evaluation.reasoning)
         self.handoff_recorder.record(run_id, "EvaluationAgent", "Controller", "evaluate",
                                      evaluation.reasoning, [student_answer[:60]], [evaluation.status])
 
@@ -468,6 +507,18 @@ class WorkflowController:
 
     def _resp(self, run_id: str, state: str, session: StudySession, **kwargs) -> Dict[str, Any]:
         return {"run_id": run_id, "current_state": state, "session": session.model_dump(), **kwargs}
+
+    def _event(self, run_id: str, phase: str, actor: str, action: str, result: str, reason: str):
+        self.state_manager.record_event({
+            "run_id": run_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "phase": phase,
+            "current_state": phase,
+            "actor": actor,
+            "action": action,
+            "result": result,
+            "reason": reason,
+        })
 
     def _persist_context(self, run_id: str, ctx: CourseContext):
         pass  # Context stored in session_data["dag"]

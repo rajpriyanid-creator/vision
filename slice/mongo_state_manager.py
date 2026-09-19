@@ -103,6 +103,16 @@ class MongoStateManager:
             return self._fallback.get_handoffs(run_id)
         return list(self.db.agent_handoffs.find({"run_id": run_id}, {"_id": 0}).sort("handoff_id", 1))
 
+    def record_event(self, event: Dict[str, Any]):
+        if self._fallback:
+            return self._fallback.record_event(event)
+        self.db.session_events.insert_one(dict(event))
+
+    def get_events(self, run_id: str) -> List[Dict[str, Any]]:
+        if self._fallback:
+            return self._fallback.get_events(run_id)
+        return list(self.db.session_events.find({"run_id": run_id}, {"_id": 0}).sort("timestamp", 1))
+
     def get_student_sessions(self, student_id: str, limit: int = 20) -> List[Dict[str, Any]]:
         if self._fallback:
             # SQLite's existing manager intentionally has a small interface;

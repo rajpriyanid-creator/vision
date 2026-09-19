@@ -40,6 +40,7 @@ const STATE_MESSAGES = {
   LOAD_COURSE_CONTEXT: 'Supervisor is building prerequisite map…',
   PLAN_NEXT_ACTION: 'Supervisor is planning next action…',
   PRACTICE: 'Awaiting your answer…',
+  INITIAL_TEACHING: 'Tutor Agent is teaching your target concept…',
   EVALUATE: 'Evaluating response…',
   TIE_BREAKER: 'Concept-Gap Exit Ticket active…',
   DIAGNOSE_GAP: 'Diagnostic Agent analyzing root cause…',
@@ -353,6 +354,7 @@ function App() {
   const [subject, setSubject] = useState('')
   const [target, setTarget] = useState('')
   const [goal, setGoal] = useState('')
+  const [level, setLevel] = useState('intermediate')
   const [answer, setAnswer] = useState('')
   const [selectedOption, setSelectedOption] = useState('')
   const [userCustomNotes, setUserCustomNotes] = useState('')
@@ -427,12 +429,25 @@ function App() {
           student_id: student.trim(),
           subject: subject.trim(),
           target_concept: target.trim(),
+          learner_level: level,
+          learning_goal: goal.trim() || 'understand',
+          user_notes: userCustomNotes,
         }),
       })
       localStorage.setItem('vision_run_id', data.run_id)
       setSession(data)
       setLoadingMsg('')
     } catch (err) { setError(err.message); setLoadingMsg('') } finally { setLoading(false) }
+  }
+
+  async function beginPractice(skipLesson = false) {
+    setLoading(true); setError(''); setLoadingMsg('Exercise Agent is preparing your first practice question…')
+    try {
+      const data = await request('/api/session/begin-practice', {
+        method: 'POST', body: JSON.stringify({ run_id: session.run_id, skip_lesson: skipLesson }),
+      })
+      setSession(data)
+    } catch (err) { setError(err.message) } finally { setLoading(false); setLoadingMsg('') }
   }
 
   async function submit(event, extraData = {}) {
@@ -495,7 +510,7 @@ function App() {
   function cleanText(txt, fallback = '') {
     if (!txt || typeof txt !== 'string') return fallback
     if (txt.startsWith('[Error') || txt.includes('RESOURCE_EXHAUSTED') || txt.includes('429')) {
-      return fallback || 'VISION has initialized the key principles for this topic.'
+      return fallback || 'AI response unavailable. Try again or provide course notes.'
     }
     return txt
   }
@@ -568,6 +583,15 @@ function App() {
             <input value={target} onChange={e => { setTarget(e.target.value); setContextStatus(null) }} placeholder="e.g. Recursion, Newton's Second Law…"/>
           </label>
 
+          <div className="form-row">
+            <label>LEVEL
+              <select value={level} onChange={e => setLevel(e.target.value)}><option value="beginner">Beginner</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option></select>
+            </label>
+            <label>GOAL
+              <input value={goal} onChange={e => setGoal(e.target.value)} placeholder="Understand, exam prep…" />
+            </label>
+          </div>
+
           <label>PERSONAL NOTES / CUSTOM RESOURCES <span className="optional">(optional)</span>
             <textarea value={userCustomNotes} onChange={e => setUserCustomNotes(e.target.value)} placeholder="Paste custom notes or links you want VISION to use for teaching..." rows={2} />
           </label>
@@ -599,6 +623,16 @@ function App() {
               <div className="summary-item"><strong>Revisions:</strong> {sessionObj.revision_count}/3</div>
             </div>
             <button className="primary-button compact" onClick={reset}>Start another session <Icon name="arrow" size={15}/></button>
+          </div>
+
+          : currentState === 'INITIAL_TEACHING' ? <div className="lesson-first-card">
+            <span className="section-label">INITIAL LEARNING</span>
+            <h2>Let’s learn {target}.</h2>
+            <p>VISION teaches the target concept first. Practice will not begin until you choose to start it.</p>
+            {session.teaching_action && <div className="lesson-body">{cleanText(session.teaching_action.explanation_text, 'AI response unavailable. Please try again or provide notes.')}</div>}
+            <div className="evidence-ref">Source status: {resourceSel.verification_status || 'not established'}</div>
+            <button className="primary-button" onClick={() => beginPractice(false)} disabled={loading}>I’m ready — Start practice <Icon name="arrow" size={16}/></button>
+            {error && <p className="error-text">{error}</p>}
           </div>
 
           : isWaiting ? <div className="human-card">
@@ -691,7 +725,7 @@ function App() {
               <div className="web-resources-card">
                 <div className="web-res-head">
                   <span className="section-label">RESOURCE AGENT DISCOVERY</span>
-                  <h4>Top Recommended Web & Learning Resources</h4>
+                  <h4>Explore related resources</h4>
                 </div>
                 <div className="web-res-grid">
                   {webResources.map((res, idx) => (

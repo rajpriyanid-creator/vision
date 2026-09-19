@@ -17,6 +17,8 @@ class StudentState(BaseModel):
     prerequisite_history: List[List[str]] = Field(default_factory=list)
     successful_modes: List[str] = Field(default_factory=list)
     failed_modes: List[str] = Field(default_factory=list)
+    preferred_level: Optional[str] = None
+    preferred_goal: Optional[str] = None
 
 
 class CourseContext(BaseModel):
@@ -37,6 +39,11 @@ class StudySession(BaseModel):
     call_count: int = 0
     current_state: str = "START_STUDY"
     agent_activities: Dict[str, str] = Field(default_factory=dict)
+    learner_level: str = "intermediate"
+    learning_goal: str = "understand"
+    learning_phase_completed: bool = False
+    lesson_skipped: bool = False
+    attempt_count: int = 0
 
 
 class Attempt(BaseModel):
@@ -196,6 +203,35 @@ class StateManager:
                     output_record_refs TEXT NOT NULL,
                     reason TEXT NOT NULL,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS learner_course_states (
+                    student_id TEXT NOT NULL,
+                    course_id TEXT NOT NULL,
+                    mastered TEXT NOT NULL,
+                    weak TEXT NOT NULL,
+                    misconceptions TEXT NOT NULL,
+                    prerequisite_history TEXT,
+                    successful_modes TEXT,
+                    failed_modes TEXT,
+                    preferred_level TEXT,
+                    preferred_goal TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (student_id, course_id)
+                );
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS session_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    phase TEXT NOT NULL,
+                    current_state TEXT NOT NULL,
+                    actor TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    result TEXT NOT NULL,
+                    reason TEXT NOT NULL
                 );
             """)
             conn.commit()
@@ -203,7 +239,7 @@ class StateManager:
     def get_or_create_student_state(self, student_id: str, course_id: str) -> StudentState:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT mastered, weak, misconceptions, prerequisite_history, successful_modes, failed_modes FROM student_states WHERE student_id = ?", (student_id,))
+            cursor.execute("SELECT mastered, weak, misconceptions, prerequisite_history, successful_modes, failed_modes, preferred_level, preferred_goal FROM learner_course_states WHERE student_id = ? AND course_id = ?", (student_id, course_id))
             row = cursor.fetchone()
             if row:
                 return StudentState(
@@ -214,10 +250,19 @@ class StateManager:
                     misconceptions=json.loads(row[2]),
                     prerequisite_history=json.loads(row[3] or "[]"),
                     successful_modes=json.loads(row[4] or "[]"),
-                    failed_modes=json.loads(row[5] or "[]")
+                    failed_modes=json.loads(row[5] or "[]"),
+                    preferred_level=row[6],
+                    preferred_goal=row[7]
                 )
             else:
+                cursor.execute("SELECT successful_modes, failed_modes, preferred_level, preferred_goal FROM learner_course_states WHERE student_id = ? ORDER BY updated_at DESC LIMIT 1", (student_id,))
+                prior = cursor.fetchone()
                 state = StudentState(student_id=student_id, course_id=course_id)
+                if prior:
+                    state.successful_modes = json.loads(prior[0] or "[]")
+                    state.failed_modes = json.loads(prior[1] or "[]")
+                    state.preferred_level = prior[2]
+                    state.preferred_goal = prior[3]
                 self.save_student_state(state)
                 return state
 
@@ -225,9 +270,9 @@ class StateManager:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT OR REPLACE INTO student_states 
-                (student_id, course_id, mastered, weak, misconceptions, prerequisite_history, successful_modes, failed_modes, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT OR REPLACE INTO learner_course_states
+                (student_id, course_id, mastered, weak, misconceptions, prerequisite_history, successful_modes, failed_modes, preferred_level, preferred_goal, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 state.student_id,
                 state.course_id,
@@ -236,9 +281,24 @@ class StateManager:
                 json.dumps(state.misconceptions),
                 json.dumps(state.prerequisite_history),
                 json.dumps(state.successful_modes),
-                json.dumps(state.failed_modes)
+                json.dumps(state.failed_modes),
+                state.preferred_level,
+                state.preferred_goal
             ))
             conn.commit()
+
+    def record_event(self, event: Dict[str, Any]):
+        with self._get_connection() as conn:
+            conn.execute(
+                "INSERT INTO session_events (run_id, timestamp, phase, current_state, actor, action, result, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (event["run_id"], event.get("timestamp"), event["phase"], event["current_state"], event["actor"], event["action"], event["result"], event["reason"]),
+            )
+            conn.commit()
+
+    def get_events(self, run_id: str) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT event_id, run_id, timestamp, phase, current_state, actor, action, result, reason FROM session_events WHERE run_id = ? ORDER BY event_id", (run_id,)).fetchall()
+        return [dict(zip(("event_id", "run_id", "timestamp", "phase", "current_state", "actor", "action", "result", "reason"), row)) for row in rows]
 
     def save_study_session(self, session: StudySession, session_data: Dict[str, Any]):
         with self._get_connection() as conn:
