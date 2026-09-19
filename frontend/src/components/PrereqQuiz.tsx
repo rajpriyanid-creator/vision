@@ -9,22 +9,27 @@ export const PrereqQuiz: React.FC = () => {
   const prerequisiteName = quiz.prerequisite || session?.candidate_prerequisite || 'Prerequisite';
   const targetConcept = session?.target_concept || 'Target Concept';
   const questions: Array<{
-    id: string;
+    id?: string | number;
     question: string;
     options?: Record<string, string> | string[];
     correct_answer?: string;
+    correct_index?: number;
+    explanation?: string;
   }> = quiz.questions || [];
 
-  const handleSelectOption = (questionId: string, optionKey: string) => {
+  const handleSelectOption = (questionKey: string, optionKey: string) => {
     setAnswers((prev) => ({
       ...prev,
-      [questionId]: optionKey
+      [questionKey]: optionKey
     }));
   };
 
   const isAllAnswered =
     questions.length > 0 &&
-    questions.every((q) => answers[q.id] !== undefined && answers[q.id] !== '');
+    questions.every((q, idx) => {
+      const qKey = String(q.id !== undefined ? q.id : idx);
+      return answers[qKey] !== undefined && answers[qKey] !== '';
+    });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +76,8 @@ export const PrereqQuiz: React.FC = () => {
         {/* Modal Scrollable Body */}
         <form onSubmit={handleSubmit} className="p-5 sm:p-6 overflow-y-auto flex flex-col gap-5 max-h-[50vh]">
           {questions.map((q, idx) => {
-            const selectedOpt = answers[q.id];
+            const qKey = String(q.id !== undefined ? q.id : idx);
+            const selectedOpt = answers[qKey];
             const optionsObj = q.options || {};
             const optionEntries = Array.isArray(optionsObj)
               ? optionsObj.map((val, i) => [String.fromCharCode(97 + i), val] as [string, string])
@@ -79,7 +85,7 @@ export const PrereqQuiz: React.FC = () => {
 
             return (
               <div
-                key={q.id || idx}
+                key={qKey}
                 className="p-4 rounded-xl bg-[#0F172A]/90 border border-[#1F2F4A] flex flex-col gap-3"
               >
                 <div className="flex items-start gap-3">
@@ -96,7 +102,7 @@ export const PrereqQuiz: React.FC = () => {
                       <button
                         type="button"
                         key={key}
-                        onClick={() => handleSelectOption(q.id, key)}
+                        onClick={() => handleSelectOption(qKey, key)}
                         className={`p-2.5 rounded-lg text-left text-xs font-mono transition-all flex items-center gap-3 ${
                           isSelected
                             ? 'bg-[#00D2FF]/20 border border-[#00D2FF] text-[#00D2FF] font-bold shadow-[0_0_12px_rgba(0,210,255,0.15)]'

@@ -132,20 +132,27 @@ export interface SessionData {
   concept_titles?: Record<string, string>;
   active_concept?: string;
   prereq_survey_data?: {
-    direct_prerequisites?: Array<{ id: string; title: string }>;
+    direct_prerequisites?: Array<{ id: string; title: string } | string>;
+    prerequisites?: string[];
     target_concept?: string;
     target_id?: string;
+    message?: string;
+    [key: string]: any;
   };
   prereq_quiz?: {
     concept?: string;
+    prerequisite?: string;
     concept_title?: string;
     questions?: Array<{
-      id: number;
+      id?: string | number;
       question: string;
-      options: string[];
+      options?: Record<string, string> | string[];
+      correct_answer?: string;
       correct_index?: number;
       explanation?: string;
+      [key: string]: any;
     }>;
+    [key: string]: any;
   };
   quiz_eval?: {
     concept?: string;
@@ -155,6 +162,7 @@ export interface SessionData {
     total_count?: number;
     threshold?: number;
     details?: any[];
+    [key: string]: any;
   };
   survey_responses?: Record<string, string>;
   exercise?: Exercise | null;
