@@ -136,7 +136,7 @@ export const VisionProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Update session state and helper fields
   const applySessionData = useCallback((data: SessionData) => {
-    setSession(data);
+    setSession((prev) => (prev ? { ...prev, ...data } : data));
     if (data.run_id) {
       setRunId(data.run_id);
       if (typeof window !== 'undefined') {

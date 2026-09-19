@@ -223,11 +223,7 @@ def start_session(payload: StartRequest) -> dict[str, Any]:
             user_notes=payload.user_notes,
             defer_practice=True,
         )
-        return {
-            **result,
-            "handoffs": storage.get_handoffs(result["run_id"]),
-            "storage": storage.backend,
-        }
+        return _public_session(result["run_id"])
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -235,12 +231,8 @@ def start_session(payload: StartRequest) -> dict[str, Any]:
 @app.post("/api/session/prereq-survey")
 def prereq_survey(payload: PrereqSurveyRequest) -> dict[str, Any]:
     try:
-        result = controller.submit_prereq_survey(payload.run_id, payload.survey_responses)
-        return {
-            **result,
-            "handoffs": storage.get_handoffs(payload.run_id),
-            "storage": storage.backend,
-        }
+        controller.submit_prereq_survey(payload.run_id, payload.survey_responses)
+        return _public_session(payload.run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -250,12 +242,8 @@ def prereq_survey(payload: PrereqSurveyRequest) -> dict[str, Any]:
 @app.post("/api/session/prereq-quiz")
 def prereq_quiz(payload: PrereqQuizRequest) -> dict[str, Any]:
     try:
-        result = controller.submit_prereq_quiz(payload.run_id, payload.answers)
-        return {
-            **result,
-            "handoffs": storage.get_handoffs(payload.run_id),
-            "storage": storage.backend,
-        }
+        controller.submit_prereq_quiz(payload.run_id, payload.answers)
+        return _public_session(payload.run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -265,8 +253,8 @@ def prereq_quiz(payload: PrereqQuizRequest) -> dict[str, Any]:
 @app.post("/api/session/begin-practice")
 def begin_practice(payload: PracticeRequest) -> dict[str, Any]:
     try:
-        result = controller.begin_practice(payload.run_id, payload.skip_lesson)
-        return {**result, "handoffs": storage.get_handoffs(payload.run_id), "storage": storage.backend}
+        controller.begin_practice(payload.run_id, payload.skip_lesson)
+        return _public_session(payload.run_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -279,7 +267,7 @@ def get_session(run_id: str) -> dict[str, Any]:
 @app.post("/api/session/step")
 def step_session(payload: StepRequest) -> dict[str, Any]:
     try:
-        result = controller.submit_answer(
+        controller.submit_answer(
             run_id=payload.run_id,
             student_answer=(payload.student_answer or "").strip(),
             selected_option=payload.selected_option,
@@ -287,11 +275,7 @@ def step_session(payload: StepRequest) -> dict[str, Any]:
             test_results=payload.test_results,
             user_notes=payload.user_notes
         )
-        return {
-            **result,
-            "handoffs": storage.get_handoffs(payload.run_id),
-            "storage": storage.backend,
-        }
+        return _public_session(payload.run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -313,12 +297,8 @@ def step_session_alias(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 @app.post("/api/session/human-resume")
 def resume_session(payload: ResumeRequest) -> dict[str, Any]:
     try:
-        result = controller.resume_human_decision(payload.run_id, payload.decision)
-        return {
-            **result,
-            "handoffs": storage.get_handoffs(payload.run_id),
-            "storage": storage.backend,
-        }
+        controller.resume_human_decision(payload.run_id, payload.decision)
+        return _public_session(payload.run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

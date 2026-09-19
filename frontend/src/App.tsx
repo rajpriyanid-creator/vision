@@ -138,6 +138,7 @@ const VisionDashboard: React.FC = () => {
           {/* Interactive DAG Graph */}
           <PrerequisiteGraph
             dag={session.dag}
+            conceptTitles={session.concept_titles}
             targetConcept={session.target_concept}
             candidatePrerequisite={session.candidate_prerequisite}
             onSelectConcept={(nodeId: string) => setSelectedDagNode(nodeId)}
@@ -212,6 +213,7 @@ const VisionDashboard: React.FC = () => {
           <div className="rounded-2xl bg-[#0E1526] border border-[#1F2F4A] p-4">
             <PrerequisiteGraph
               dag={session?.dag}
+              conceptTitles={session?.concept_titles}
               targetConcept={session?.target_concept}
               candidatePrerequisite={session?.candidate_prerequisite}
               onSelectConcept={(id: string) => setSelectedDagNode(id)}

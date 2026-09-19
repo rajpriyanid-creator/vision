@@ -95,7 +95,7 @@ class WorkflowController:
 
         # State 3: LOAD_COURSE_CONTEXT
         session.current_state = "LOAD_COURSE_CONTEXT"
-        course_context, concept_titles = self.supervisor.build_course_context(subject, target_concept, course_id)
+        course_context, concept_titles, curriculum_questions = self.supervisor.build_course_context(subject, target_concept, course_id)
         session.call_count += 1
         self.handoff_recorder.record(run_id, "Supervisor", "Controller", "build_dag",
                                      f"Generated DAG for {subject}/{target_concept}",
@@ -115,6 +115,7 @@ class WorkflowController:
             "prereq_chain": [target_id],
             "concept_titles": concept_titles,
             "dag": course_context.dependency_graph,
+            "curriculum_questions": curriculum_questions,
             "history": [],
             "taught_concepts": [],
             "user_notes": user_notes
@@ -501,10 +502,12 @@ class WorkflowController:
         session.lesson_skipped = bool(skip_lesson)
         session.current_state = "GENERATE_EXERCISE"
 
+        curriculum_qs = data.get("curriculum_questions", [])
         exercise = self.exercise_agent.generate_exercise(
             run_id, data["target_id"], "initial_target", subject=data.get("subject", ""),
             context=f"Learner level: {session.learner_level}; goal: {session.learning_goal}. Initial lesson completed.",
-            learner_level=session.learner_level, learning_goal=session.learning_goal, attempt_count=session.attempt_count
+            learner_level=session.learner_level, learning_goal=session.learning_goal, attempt_count=session.attempt_count,
+            curriculum_questions=curriculum_qs
         )
         session.call_count += 1
         data["active_exercise"] = exercise.model_dump()

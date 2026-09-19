@@ -69,9 +69,12 @@ class LLMClient:
             self.provider = "mock"
 
         model_env = os.getenv("SLICE_MODEL") or os.getenv("GEMINI_MODEL")
+        if model_env and "3.8" in model_env:
+            model_env = "gemini-2.5-flash"
+
         self.model = model or model_env or (
-            "gemini-3.8-flash" if self.provider == "gemini"
-            else "google/gemini-3.6-flash" if self.provider == "openrouter"
+            "gemini-2.5-flash" if self.provider == "gemini"
+            else "google/gemini-2.5-flash" if self.provider == "openrouter"
             else "gpt-4o-mini" if self.provider == "openai"
             else "mock"
         )

@@ -23,37 +23,77 @@ class SupervisorAgent:
     4. Orchestrates study pathways and dynamic topic switching.
     """
 
-    SYSTEM_PROMPT_DAG = """You are a Principal Computer Science Curriculum Architect and Knowledge Graph Engineer.
+    SYSTEM_PROMPT_CURRICULUM = """You are a Principal Computer Science Curriculum Architect and Assessment Engineer.
 
 Your domain is STRICTLY COMPUTER SCIENCE & SOFTWARE DEVELOPMENT:
-- Data Structures & Algorithms (Stacks, Queues, Trees, Graphs, Hash Maps, Dynamic Programming, etc.)
-- Programming Languages (C++, Python, Java, C, JavaScript, TypeScript, Go, Rust)
-- Web & App Frameworks (React, Angular, Vue, Node.js, Next.js, Django, Spring Boot, etc.)
-- Core Systems (Pointers, Memory Allocation, Operating Systems, Concurrency, Databases, System Design)
+- Data Structures & Algorithms (Linked Lists, Stacks, Queues, Trees, Graphs, Hash Tables, Sorting, Recursion, Dynamic Programming)
+- Programming Languages (C++, Java, Python, C, JavaScript, TypeScript, Go, Rust)
+- Web & App Frameworks (React, Angular, Vue, Node.js, Next.js, Django, Spring Boot)
+- Core Systems (Pointers, Memory Allocation, Concurrency, Databases, OS, Networking)
 
-Given a CS subject/framework/language and a target concept, generate an exact prerequisite dependency graph.
-Return ONLY a JSON object with this structure:
+Given a CS subject and a target concept, determine:
+1. "Are there any direct prerequisites for this concept?"
+   - Foundational concepts (e.g. Arrays, Strings, Variables, Basic Arithmetic) have ZERO prerequisites -> Return empty list `[]`.
+   - Other concepts have direct prerequisites (e.g. Binary Trees -> Linked Lists; Linked Lists -> Pointers; Stacks -> Arrays).
+
+2. CRITICAL DEPTH LIMIT (Strictly Level 1 only!):
+   - You MUST NOT give prerequisites of level more than 1.
+   - For example: For Binary Trees, the prerequisite is Linked Lists. DO NOT include Pointers (which is a prerequisite of Linked Lists).
+   - Every prerequisite node MUST have an empty list `[]`.
+   - There must NEVER be any edge that is not directly connected to the main requested target concept.
+
+3. 3-4 high quality, technically accurate assessment questions specifically about the target concept to prepare downstream Exercise and Evaluation agents.
+
+Return ONLY a JSON object with this exact structure:
 {
-  "course_name": "<subject/framework/language name>",
-  "concepts": ["concept_id_1", "concept_id_2", ...],
+  "course_name": "<subject/framework name>",
+  "concepts": ["target_id", "direct_prereq_1"],
   "dependency_graph": {
-    "concept_id_1": ["prereq_a", "prereq_b"],
-    "concept_id_2": [],
-    ...
+    "target_id": ["direct_prereq_1"],
+    "direct_prereq_1": []
   },
   "concept_titles": {
-    "concept_id_1": "Human-readable concept name",
-    ...
-  }
+    "target_id": "Target Concept Name",
+    "direct_prereq_1": "Human-readable Direct Prerequisite Name"
+  },
+  "questions": [
+    {
+      "id": 1,
+      "question": "<Clear, technically rigorous CS question on the target concept>",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correct_index": 0,
+      "correct_answer": "Option A",
+      "explanation": "<Technical explanation of why this is correct and why distractors are wrong>",
+      "question_format": "mcq",
+      "difficulty": 2
+    },
+    {
+      "id": 2,
+      "question": "<Second CS question evaluating mechanics, time/space complexity, or memory>",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correct_index": 1,
+      "correct_answer": "Option B",
+      "explanation": "<Explanation>",
+      "question_format": "mcq",
+      "difficulty": 3
+    },
+    {
+      "id": 3,
+      "question": "<Third CS question on edge cases, operations, or implementation details>",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correct_index": 2,
+      "correct_answer": "Option C",
+      "explanation": "<Explanation>",
+      "question_format": "mcq",
+      "difficulty": 3
+    }
+  ]
 }
 
 Rules:
-- Strictly CS & Programming domain.
-- Use clean snake_case for concept IDs (e.g., 'arrays', 'pointers_and_references', 'memory_allocation', 'virtual_dom').
-- Include the target concept and its direct + indirect prerequisites (1 to 3 levels deep).
-- Target concept MUST have its direct prerequisites listed under its key.
-- Max 6-8 concepts total for optimal learning efficiency.
-- All prerequisite IDs must also appear as keys in dependency_graph."""
+- Strictly Level 1 prerequisites only. Zero indirect or transitive prerequisites.
+- Questions must be 100% specific to the target concept.
+- Use clean snake_case for concept IDs."""
 
     SYSTEM_PROMPT_PREREQ_QUIZ = """You are the VISION Prerequisite Diagnostic Examiner for Computer Science.
 Generate a focused 2-3 question diagnostic quiz to verify if a student genuinely understands the prerequisite concept.
@@ -83,67 +123,263 @@ Return JSON only in this exact structure:
     def __init__(self):
         self.llm = LLMClient()
 
-    def build_course_context(self, subject: str, target_concept: str, course_id: str) -> tuple[CourseContext, Dict[str, str]]:
-        """Dynamically generates a CS prerequisite DAG for any programming topic using Gemini."""
+    def build_course_context(
+        self,
+        subject: str,
+        target_concept: str,
+        course_id: str
+    ) -> tuple[CourseContext, Dict[str, str], List[Dict[str, Any]]]:
+        """Dynamically generates a Level-1 CS prerequisite DAG and 3-4 targeted questions for any programming topic."""
         target_id = _to_id(target_concept)
-        domain_graph = Path(__file__).resolve().parent.parent / "domain" / "prerequisite_graph.json"
-        
-        # Offline fixture fallback for quick smoke tests
-        if not self.llm.is_live and (target_id == "binary_tree_inorder_traversal" or "data structure" in subject.lower()):
-            if domain_graph.exists():
-                payload = json.loads(domain_graph.read_text(encoding="utf-8"))
-                nodes = payload.get("nodes", [])
-                graph = {node["id"]: node.get("prerequisites", []) for node in nodes}
-                titles = {node["id"]: node.get("title", node["id"]) for node in nodes}
-                return CourseContext(
-                    course_id=course_id,
-                    course_name="Data Structures",
-                    concepts=list(graph),
-                    dependency_graph=graph,
-                    source_ids=["data_structures_notes.md"],
-                ), titles
+        curriculum_questions: List[Dict[str, Any]] = []
 
-        user_prompt = f"""Computer Science Subject/Area: {subject}
+        if self.llm.is_live:
+            user_prompt = f"""Computer Science Subject/Domain: {subject}
 Target Programming Concept: {target_concept}
 
-Generate the prerequisite dependency graph strictly for Computer Science / Software Engineering.
+For this topic "{target_concept}", determine its direct prerequisites (Level 1 only, no deeper prerequisites).
+Generate the Level-1 prerequisite graph and 3-4 targeted assessment questions.
 Return JSON only."""
+            try:
+                result = self.llm.escalate(self.SYSTEM_PROMPT_CURRICULUM, user_prompt, max_tokens=1536)
+                if isinstance(result, str):
+                    from slice.llm_client import LLMClient as _LC
+                    result = _LC._parse_json(result)
 
-        result = self.llm.escalate(self.SYSTEM_PROMPT_DAG, user_prompt, max_tokens=1024)
-        if isinstance(result, str):
-            from slice.llm_client import LLMClient as _LC
-            result = _LC._parse_json(result)
+                raw_dep_graph: Dict[str, List[str]] = result.get("dependency_graph", {})
+                raw_concept_titles: Dict[str, str] = result.get("concept_titles", {})
+                course_name = result.get("course_name", subject)
+                curriculum_questions = result.get("questions", [])
 
-        dep_graph: Dict[str, List[str]] = result.get("dependency_graph", {})
-        concepts: List[str] = result.get("concepts", [])
-        concept_titles: Dict[str, str] = result.get("concept_titles", {})
-        course_name = result.get("course_name", subject)
+                # Enforce Strict Level 1 Rule: only direct prerequisites of target_id, all prereq nodes have []
+                direct_prereqs = raw_dep_graph.get(target_id, [])
+                dep_graph: Dict[str, List[str]] = {target_id: direct_prereqs}
+                concepts = [target_id]
+                concept_titles = {target_id: raw_concept_titles.get(target_id, target_concept)}
 
-        # Ensure target is in graph
-        if target_id not in dep_graph:
-            dep_graph[target_id] = []
-        if target_id not in concepts:
-            concepts.insert(0, target_id)
-        if target_id not in concept_titles:
-            concept_titles[target_id] = target_concept
-
-        # Ensure all prereqs exist as keys
-        for prereqs in list(dep_graph.values()):
-            for p in prereqs:
-                if p not in dep_graph:
-                    dep_graph[p] = []
-                if p not in concepts:
+                for p in direct_prereqs:
+                    dep_graph[p] = []  # No deeper levels!
                     concepts.append(p)
-                if p not in concept_titles:
-                    concept_titles[p] = p.replace("_", " ").title()
+                    concept_titles[p] = raw_concept_titles.get(p, p.replace("_", " ").title())
+
+                return CourseContext(
+                    course_id=course_id,
+                    course_name=course_name,
+                    concepts=concepts,
+                    dependency_graph=dep_graph,
+                    source_ids=["gemini-dynamic-dag"]
+                ), concept_titles, curriculum_questions
+            except Exception as e:
+                print(f"[SupervisorAgent] LLM DAG generation fallback triggered ({e})")
+
+        # Robust, concept-specific CS Knowledge Builder (Offline / Fallback) with Level-1 rule enforced
+        dep_graph, concepts, concept_titles, curriculum_questions = self._build_offline_cs_curriculum(subject, target_concept, target_id)
 
         return CourseContext(
             course_id=course_id,
-            course_name=course_name,
+            course_name=subject or "Computer Science",
             concepts=concepts,
             dependency_graph=dep_graph,
-            source_ids=["gemini-dynamic-dag", "corpus"]
-        ), concept_titles
+            source_ids=["vision-cs-curriculum-engine"]
+        ), concept_titles, curriculum_questions
+
+    def _build_offline_cs_curriculum(self, subject: str, target_concept: str, target_id: str):
+        """Intelligent, concept-specific Level-1 Computer Science prerequisite & question generator."""
+        c_lower = target_concept.lower()
+
+        # 1. Foundational concepts: ZERO prerequisites
+        if (target_id in {"array", "arrays", "string", "strings", "variables", "basic_syntax"} or
+            "array" == c_lower or "arrays" == c_lower or "string" == c_lower or "strings" == c_lower):
+            dep_graph = {target_id: []}
+            concept_titles = {target_id: target_concept.title()}
+            questions = [
+                {
+                    "id": 1,
+                    "question": f"In Computer Science, what is the defining characteristic of {target_concept.title()}?",
+                    "options": [
+                        "Contiguous indexed sequential storage with O(1) random access by index",
+                        "Non-contiguous linked node chaining",
+                        "Automatic hashing with key-value eviction",
+                        "Hierarchical parent-child recursive tree structure"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "Contiguous indexed sequential storage with O(1) random access by index",
+                    "explanation": "Arrays/strings store homogeneous elements in contiguous memory locations, allowing O(1) direct index arithmetic."
+                }
+            ]
+
+        # 2. Binary Tree / Trees: Level 1 prereq is Linked List only (NOT pointers)
+        elif "tree" in target_id or "tree" in c_lower:
+            dep_graph = {
+                target_id: ["linked_list"],
+                "linked_list": []
+            }
+            concept_titles = {
+                target_id: target_concept.title(),
+                "linked_list": "Linked List"
+            }
+            questions = [
+                {
+                    "id": 1,
+                    "question": f"How do nodes in a Binary Tree differ from nodes in a Singly Linked List?",
+                    "options": [
+                        "A Binary Tree node has two child pointers (left & right) rather than a single next pointer",
+                        "A Binary Tree stores data in contiguous array indices only",
+                        "A Binary Tree does not use heap memory allocation",
+                        "A Binary Tree can only hold numeric floating point values"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "A Binary Tree node has two child pointers (left & right) rather than a single next pointer",
+                    "explanation": "Each binary tree node extends linked node structures by maintaining up to two branch references (left and right)."
+                }
+            ]
+
+        # 3. Linked List: Level 1 prereq is Pointers & References only
+        elif "linked_list" in target_id or "linked list" in c_lower:
+            dep_graph = {
+                "linked_list": ["pointers_and_references"],
+                "pointers_and_references": []
+            }
+            concept_titles = {
+                "linked_list": "Linked List",
+                "pointers_and_references": "Pointers & References"
+            }
+            questions = [
+                {
+                    "id": 1,
+                    "question": "What is the primary advantage of a Singly Linked List over a standard fixed-size Array?",
+                    "options": [
+                        "O(1) dynamic insertion and deletion at known node references without shifting elements",
+                        "O(1) random access to any arbitrary element by index",
+                        "Lower memory consumption per stored element",
+                        "Automatic hardware cache line optimization"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "O(1) dynamic insertion and deletion at known node references without shifting elements",
+                    "explanation": "Linked lists store elements non-contiguously using pointers, allowing insertions and deletions in O(1) time without element shifting."
+                },
+                {
+                    "id": 2,
+                    "question": "In a Singly Linked List, what is the time complexity of accessing the k-th node from the head?",
+                    "options": [
+                        "O(1) constant time",
+                        "O(k) linear sequential traversal from the head pointer",
+                        "O(log k) binary search time",
+                        "O(k^2) quadratic time"
+                    ],
+                    "correct_index": 1,
+                    "correct_answer": "O(k) linear sequential traversal from the head pointer",
+                    "explanation": "Because linked list nodes are not stored in contiguous memory addresses, random indexing is impossible and requires sequential traversal from the head."
+                }
+            ]
+
+        # 4. Stack: Level 1 prereq is Arrays / Sequential Storage
+        elif "stack" in target_id or "stack" in c_lower:
+            dep_graph = {
+                "stack": ["arrays"],
+                "arrays": []
+            }
+            concept_titles = {
+                "stack": "Stack Data Structure",
+                "arrays": "Arrays & Sequential Storage"
+            }
+            questions = [
+                {
+                    "id": 1,
+                    "question": "Which operation ordering discipline defines a Stack data structure?",
+                    "options": [
+                        "LIFO (Last-In, First-Out)",
+                        "FIFO (First-In, First-Out)",
+                        "Random Access by key hash",
+                        "Priority-based eviction"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "LIFO (Last-In, First-Out)",
+                    "explanation": "In a stack, the last element pushed onto the top is the first element popped off."
+                }
+            ]
+
+        # 5. Queue: Level 1 prereq is Arrays / Sequential Storage
+        elif "queue" in target_id or "queue" in c_lower:
+            dep_graph = {
+                "queue": ["arrays"],
+                "arrays": []
+            }
+            concept_titles = {
+                "queue": "Queue Data Structure",
+                "arrays": "Arrays & Sequential Storage"
+            }
+            questions = [
+                {
+                    "id": 1,
+                    "question": "What is the characteristic ordering of a Queue data structure?",
+                    "options": [
+                        "FIFO (First-In, First-Out): elements are enqueued at the tail and dequeued from the head",
+                        "LIFO (Last-In, First-Out): elements are popped from the top",
+                        "Elements sorted automatically upon insertion",
+                        "Bidirectional indexing with middle-out removal"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "FIFO (First-In, First-Out)",
+                    "explanation": "Queues maintain FIFO ordering where the earliest enqueued item is served first."
+                }
+            ]
+
+        # 6. React Hooks / State: Level 1 prereq is JavaScript Functions & Closures
+        elif "react" in target_id or "react" in c_lower:
+            dep_graph = {
+                "react_hooks": ["javascript_functions_and_closures"],
+                "javascript_functions_and_closures": []
+            }
+            concept_titles = {
+                "react_hooks": "React Hooks & Component State",
+                "javascript_functions_and_closures": "JavaScript Functions & Closures"
+            }
+            questions = [
+                {
+                    "id": 1,
+                    "question": "Why must React state never be mutated directly (e.g. state.count = 5)?",
+                    "options": [
+                        "Direct mutation does not trigger the component re-render reconciliation cycle",
+                        "Direct mutation causes syntax compile errors in JavaScript",
+                        "React converts all variables to frozen strings",
+                        "Direct mutation automatically clears browser localStorage"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": "Direct mutation does not trigger the component re-render reconciliation cycle",
+                    "explanation": "React detects state changes by reference equality comparison. Direct mutations bypass setter triggers and prevent UI re-renders."
+                }
+            ]
+
+        # 7. Generic CS Concept: 1 direct Level-1 prerequisite
+        else:
+            p1 = f"{target_id}_fundamentals"
+            dep_graph = {
+                target_id: [p1],
+                p1: []
+            }
+            concept_titles = {
+                target_id: target_concept,
+                p1: f"{target_concept} Foundations"
+            }
+            questions = [
+                {
+                    "id": 1,
+                    "question": f"In Computer Science, what is the core mechanism and defining property of {target_concept}?",
+                    "options": [
+                        f"It structures and processes data according to specific algorithmic invariants and time/space constraints",
+                        f"It bypasses CPU instruction execution",
+                        f"It is solely an operating system kernel thread interrupt",
+                        f"It disables variable scope evaluation"
+                    ],
+                    "correct_index": 0,
+                    "correct_answer": f"It structures and processes data according to specific algorithmic invariants and time/space constraints",
+                    "explanation": f"{target_concept} provides defined structures and operations for computational efficiency."
+                }
+            ]
+
+        concepts = list(dep_graph.keys())
+        return dep_graph, concepts, concept_titles, questions
 
     def generate_prereq_quiz(self, prereq_concept: str, subject: str = "", count: int = 2) -> Dict[str, Any]:
         """Generates a 2-question diagnostic multiple choice quiz to test 'Partially' known prerequisites."""
