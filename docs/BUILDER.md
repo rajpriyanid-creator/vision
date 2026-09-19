@@ -2,7 +2,7 @@
 
 **Owners:** Jeevananthan K (Backend / Builder) & Anushya M (Frontend / DB / Builder)
 
-This guide provides the complete developer blueprint for implementing the **VISION Execution Engine**, persistent state engine, API routes, and frontend integration.
+This guide provides the complete developer blueprint for implementing the **VISION Execution Engine**, 6-agent system, persistent state engine, API routes, and frontend integration.
 
 ---
 
@@ -10,36 +10,43 @@ This guide provides the complete developer blueprint for implementing the **VISI
 
 ```text
 vision-adaptive-study-agent/
-├── slice/
-│   ├── __init__.py
-│   ├── main.py                # FastAPI / Web Server Application
-│   ├── runner.py              # State Machine Engine & Loop Controller
-│   ├── state_store.py         # SQLite / JSON Persistent State Manager
-│   ├── graph_engine.py        # Prerequisite Graph Loader & Dependency Traversal
-│   ├── corpus_retriever.py    # Local Vector/BM25 Corpus Retrieval & Citation Gate
-│   ├── evaluator.py           # Rubric Evaluation Gate & Diagnostic Scoring
-│   ├── llm_orchestrator.py    # Structured LLM API Calls (OpenAI/Pydantic/Gemini)
-│   └── models.py              # Pydantic Schemas (StudentState, Attempt, etc.)
-├── domain/
-│   ├── prerequisite_graph.json # Bounded Data Structures Graph Data
-│   └── rubric.json             # Diagnostic Evaluation Criteria
-├── corpus/
-│   └── data_structures_notes.md # Approved Study Material & Citation Texts
-├── fixtures/
-│   ├── sample_student_state.json
-│   ├── replay_walkthrough_pass.json
-│   └── replay_walkthrough_fail.json
-└── tests/
-    ├── test_state_machine.py  # Deterministic State Machine Unit Tests
-    ├── test_persistence.py    # Second-Encounter Memory Tests
-    └── test_provenance.py     # Prompt Injection & Citation Verification Tests
+├── slice/                      # Deterministic Controller & State Management
+│   ├── controller.py           # Workflow Controller logic, budgets & guards
+│   ├── state_manager.py        # Pydantic state persistence & updates
+│   ├── validator.py            # Prerequisite & provenance validator
+│   └── handoff.py              # Agent handoff recorder
+├── agents/                     # Specialized AI Agents
+│   ├── supervisor.py           # High-level coordinator agent
+│   ├── diagnostic.py           # Root cause & tie-breaker agent
+│   ├── resource.py             # Corpus retrieval & grounding agent
+│   ├── tutor.py                # Personalised reteaching agent
+│   ├── exercise.py             # Targeted exercise generator agent
+│   └── evaluation.py           # Rubric-based evaluation agent
+├── domain/                     # Bounded Course Structures & Rubrics
+│   ├── prerequisite_graph.json # Dependency DAGs for demo courses
+│   └── rubric.json             # Explicit concept evaluation rubrics
+├── corpus/                     # Verified Approved Learning Materials
+│   └── data_structures_notes.md# Approved course notes & textbook snippets
+├── prompts/                    # System Prompts for AI Agents
+│   ├── supervisor_prompt.md
+│   ├── diagnostic_prompt.md
+│   ├── resource_prompt.md
+│   ├── tutor_prompt.md
+│   ├── exercise_prompt.md
+│   └── evaluation_prompt.md
+├── app/                        # User Interface Layer
+│   └── main.py                 # Streamlit / Web application interface
+├── tests/                      # Verification & Test Suites
+│   └── test_workflow.py        # Fixtures for pass, fail & stress paths
+└── evidence/                   # User Testing & Stress Logs
+    └── stress_test_log.md      # Results of real-user & adversarial tests
 ```
 
 ---
 
 ## 2. Persistent Storage Schema (SQLite & JSON)
 
-`state_store.py` manages persistent student profiles across multiple sessions.
+`slice/state_manager.py` manages persistent student profiles across multiple sessions.
 
 ### SQLite Schema (`vision.db`)
 
@@ -62,11 +69,23 @@ CREATE TABLE IF NOT EXISTS study_sessions (
     course_id TEXT NOT NULL,
     target_concept TEXT NOT NULL,
     status TEXT NOT NULL,           -- 'active', 'completed', 'waiting_human', 'given_up'
-    model_call_count INTEGER DEFAULT 0,
     revision_count INTEGER DEFAULT 0,
+    call_count INTEGER DEFAULT 0,
     session_data TEXT NOT NULL,     -- Full serialized execution context
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(student_id) REFERENCES student_states(student_id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_handoffs (
+    handoff_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    from_agent TEXT NOT NULL,
+    to_agent TEXT NOT NULL,
+    action TEXT NOT NULL,
+    input_record_refs TEXT NOT NULL,
+    output_record_refs TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -74,28 +93,26 @@ CREATE TABLE IF NOT EXISTS study_sessions (
 
 ## 3. Step-by-Step Build Order & Hard Cut-Lines
 
-### Phase 1: Spine, Typed Schemas & Replay Runner (Hours 0–4)
-- Implement `slice/models.py` with all Pydantic dataclasses.
-- Build `slice/runner.py` with pure deterministic state transitions driven by mock inputs.
-- **Hard Cut-Line 1:** Complete study session transitions from `START_STUDY` to `SESSION_COMPLETE` using replay fixtures without calling external APIs.
+### Phase 1: Spine, Typed Schemas & Controller Spine (Hours 0–4)
+- Implement `slice/state_manager.py` with all 14 Pydantic dataclasses.
+- Build `slice/controller.py` with pure deterministic state transitions driven by mock agent outputs.
+- **Hard Cut-Line 1:** Complete study session transitions from `START_STUDY` to `SESSION_COMPLETE` using fake specialist outputs without live LLM calls.
 
-### Phase 2: Domain, Graph & Retrieval Gate (Hours 4–12)
-- Load `domain/prerequisite_graph.json` into `slice/graph_engine.py`.
-- Implement `slice/corpus_retriever.py` to retrieve verified text chunks from `corpus/data_structures_notes.md`.
-- Build deterministic provenance validator to ensure retrieved quotes match exactly.
-- **Hard Cut-Line 2:** Diagnostic question generation uses retrieved context; citation gate rejects fabricated sources.
+### Phase 2: Core Multi-Agent System (Hours 4–12)
+- Implement 6 Specialist Agents in `agents/` (Supervisor, Diagnostic, Resource, Tutor, Exercise, Evaluation).
+- Connect `domain/prerequisite_graph.json`, `corpus/data_structures_notes.md`, and `domain/rubric.json`.
+- Implement provenance quote validation in `slice/validator.py`.
+- **Hard Cut-Line 2:** Single-course adaptive loop completes with live LLM calls.
 
-### Phase 3: Live LLM Integration, Budget Guards & Persistence (Hours 12–19)
-- Wire `slice/llm_orchestrator.py` with Pydantic structured outputs (`GapHypothesis`, `Evaluation`, `TeachingAction`).
-- Implement hard spend counter (Max 12 calls) and revision counter (Max 3 revisions).
-- Wire `slice/state_store.py` to persist `StudentState` after every step.
-- Implement `WAITING_FOR_HUMAN` pause/resume API endpoints.
-- **Hard Cut-Line 3:** Agent goes backwards (`GO_DEEPER`) when recheck fails, pauses on 3 revisions, and remembers state in a 2nd session.
+### Phase 3: Agentic Depth & Backtracking (Hours 12–19)
+- Wire prerequisite validation, tie-breakers, 3-revision backward loop (`GO_DEEPER`), human pause/resume (`WAITING_FOR_HUMAN`), and 2nd encounter cross-course preference transfer.
+- Enforce hard spend limit counter (18–20 calls design target) and revision counter (3 revisions).
+- **Hard Cut-Line 3:** Agent backtracks 2 levels, pauses on 3 revisions, and reuses transferable teaching preferences in a 2nd encounter.
 
-### Phase 4: UI & Walkthrough Integration (Hours 19–24)
-- Build responsive web frontend (HTML/JS/Vanilla CSS) connecting to FastAPI runner.
-- Display interactive prerequisite graph status, diagnosis cards, reteaching steps, and second-encounter indicator.
-- **Hard Cut-Line 4:** Full live walkthrough end-to-end playable on browser.
+### Phase 4: Verification & Real-User Testing (Hours 19–24)
+- Conduct 3 real-student walkthroughs and 1 adversarial stress test.
+- Document iteration log in `evidence/stress_test_log.md` with pre-fix vs post-fix commits.
+- **Hard Cut-Line 4:** All verification test scripts pass cleanly; walkthroughs and stress test evidence logged.
 
 ---
 
@@ -106,8 +123,8 @@ POST /api/session/start
 Content-Type: application/json
 
 {
-  "student_id": "student_A",
-  "course_id": "data_structures",
+  "student_id": "student_123",
+  "course_id": "ds_101",
   "target_concept": "binary_tree_inorder_traversal",
   "study_request": "Teach me inorder traversal and check whether I really understand it."
 }
@@ -116,10 +133,14 @@ Response 200:
 {
   "run_id": "run_98234",
   "current_state": "PRACTICE",
-  "action": {
-    "type": "diagnostic_question",
+  "handoff": {
+    "from_agent": "Supervisor",
+    "to_agent": "Exercise",
+    "action": "generate_initial_target_question"
+  },
+  "exercise": {
     "concept": "binary_tree_inorder_traversal",
-    "question": "For a node, which order describes inorder traversal?"
+    "question": "For a binary tree node with left child B, root A, and right child C, what is the output sequence of an inorder traversal?"
   }
 }
 ```
@@ -130,24 +151,21 @@ Content-Type: application/json
 
 {
   "run_id": "run_98234",
-  "student_answer": "Root, left, right."
+  "student_answer": "A, B, C."
 }
 
 Response 200:
 {
   "run_id": "run_98234",
-  "current_state": "RETEACH_PREREQ",
-  "hypothesis": {
-    "target": "binary_tree_inorder_traversal",
-    "candidate_prerequisite": "recursion",
-    "confidence": 0.85,
-    "reasoning": "Student misidentified root node placement; prior state shows weak recursion."
+  "current_state": "TIE_BREAKER",
+  "handoff": {
+    "from_agent": "Evaluation",
+    "to_agent": "Diagnostic",
+    "action": "trigger_tie_breaker"
   },
-  "action": {
-    "type": "reteach_prerequisite",
-    "concept": "recursion",
-    "explanation": "In recursive traversal, before processing a node's value...",
-    "question": "When a recursive function reaches a node, what happens before that node is processed if the left child exists?"
+  "exercise": {
+    "type": "tie_breaker",
+    "question": "When performing an inorder traversal, which sub-tree or node must be completely visited BEFORE processing the current root node?"
   }
 }
 ```
@@ -162,4 +180,3 @@ Content-Type: application/json
   "note": "Switch to diagrammatic step-by-step example."
 }
 ```
-

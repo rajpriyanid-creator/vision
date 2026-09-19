@@ -1,39 +1,53 @@
-# VISION — Adaptive Study Agent
+# VISION — Multi-Agent Adaptive Study & Prerequisite Debugger
 
-AGENT-A-THON 2026 | CEG, Anna University
+**AGENT-A-THON 2026** | CEG, Anna University  
+**Theme:** Building the Next Generation of Agentic EdTech  
+**Primary Challenge Area:** Agentic Personalized Education  
 
-## Core idea
-Learn -> Practice -> Diagnose -> Reteach -> Re-test -> Improve -> Remember
+## Core Learning Loop
+**Learn → Practice → Diagnose → Reteach → Re-test → Improve → Remember**
 
-This repository is the **design/specification repository for the preliminary submission**. It intentionally does not pretend unfinished application code exists. The event build is a narrow study slice: one student, one course, bounded prerequisite graph, persistent learner state, adaptive teaching, re-testing, backwards reasoning, and human pause/resume.
+This repository contains the authoritative specification, architecture, contracts, and documentation for **VISION**. The event build demonstrates a complete multi-agent prerequisite debugging loop: one student, one bounded course context, persistent learner state, diagnostic tie-breakers, grounded reteaching, targeted re-testing, backward prerequisite loop, human pause/resume, and cross-course preference persistence.
 
-## Repository
-- `AGENTSPEC.md` — final 16-section submission specification
-- `docs/` — architecture, design, builder, verifier, testing and submission guidance
-- `domain/` — VISION learning-domain fixtures
-- `corpus/` — approved evidence-material placeholder
-- `evidence/` — real-user and stress-test evidence placeholder
-- `tests/` — verification plan
+---
 
-## Event scope
-Included: personalized study state, teaching, practice, concept-gap diagnosis, prerequisite reasoning, reteaching, re-testing, persistence, human escalation.
+## Final Architecture Overview
+- **6 Specialized AI Agents:** Supervisor Agent, Diagnostic Agent, Resource Agent, Tutor Agent, Exercise Agent, Evaluation Agent.
+- **1 Deterministic Workflow Controller:** Enforces state transitions, spend budgets (18–20 call design target), revision limits (max 3 backward steps), prerequisite validation, provenance checks, and human escalation.
+- **Persistent Learner State:** Tracks transferable preferences (`successful_modes`) vs course-scoped mastery and prerequisite history across sessions (`Data Structures` → `Operating Systems`).
 
-Excluded from the event slice: projects, project stress testing, collaboration/peer matching, mentor matching, faculty dashboards, voice, multilingual interaction, broad resource recommendation, formal grading.
+---
 
-## Official starter kit
-https://github.com/rsimhan/agentic-slice-kit
+## Repository Map
+- [AGENTSPEC.md](file:///d:/Downloads/VISION_AgentSpec_GitHub_Repo/vision-adaptive-study-agent/AGENTSPEC.md) — Official 16-section submission specification
+- `docs/` — Architecture, design, builder, verifier, testing, and submission guides
+  - [AGENTSPEC_SUBMISSION.md](file:///d:/Downloads/VISION_AgentSpec_GitHub_Repo/vision-adaptive-study-agent/docs/AGENTSPEC_SUBMISSION.md) — Mirror of final AgentSpec
+  - [ARCHITECTURE.md](file:///d:/Downloads/VISION_AgentSpec_GitHub_Repo/vision-adaptive-study-agent/docs/ARCHITECTURE.md) — 20-state machine, topology & Pydantic schemas
+  - [BUILDER.md](file:///d:/Downloads/VISION_AgentSpec_GitHub_Repo/vision-adaptive-study-agent/docs/BUILDER.md) — Technical implementation blueprint & database schema
+  - [DESIGNER.md](file:///d:/Downloads/VISION_AgentSpec_GitHub_Repo/vision-adaptive-study-agent/docs/DESIGNER.md) — 6 agent rules, prompt contracts & tie-breaker strategies
+  - [IMPLEMENTATION_PLAN.md](file:///d:/Downloads/VISION_AgentSpec_GitHub_Repo/vision-adaptive-study-agent/docs/IMPLEMENTATION_PLAN.md) — 5-phase build roadmap
+  - [PRINCIPLES-BRIEF.md](file:///d:/Downloads/VISION_AgentSpec_GitHub_Repo/vision-adaptive-study-agent/docs/PRINCIPLES-BRIEF.md) — EdTech manifesto & agentic criteria
+  - [STARTER_KIT_INTEGRATION.md](file:///d:/Downloads/VISION_AgentSpec_GitHub_Repo/vision-adaptive-study-agent/docs/STARTER_KIT_INTEGRATION.md) — Starter kit mapping & smoke tests
+  - [STRESS_TEST_PLAN.md](file:///d:/Downloads/VISION_AgentSpec_GitHub_Repo/vision-adaptive-study-agent/docs/STRESS_TEST_PLAN.md) — 7 adversarial test suites & injection defense
+  - [SUBMISSION_CHECKLIST.md](file:///d:/Downloads/VISION_AgentSpec_GitHub_Repo/vision-adaptive-study-agent/docs/SUBMISSION_CHECKLIST.md) — Final submission audit checklist
+  - [USER_TEST_PLAN.md](file:///d:/Downloads/VISION_AgentSpec_GitHub_Repo/vision-adaptive-study-agent/docs/USER_TEST_PLAN.md) — 3 real-user walkthrough scripts
+  - [VERIFIER.md](file:///d:/Downloads/VISION_AgentSpec_GitHub_Repo/vision-adaptive-study-agent/docs/VERIFIER.md) — QA verification protocol & iteration log
+- `domain/` — Bounded course prerequisite graphs and evaluation rubrics
+- `corpus/` — Approved course notes and evidence materials
+- `evidence/` — User walkthrough logs and adversarial stress test logs
+- `tests/` — Automated test fixtures and regression checks
 
-The starter kit separates reusable runtime machinery from domain behavior. VISION's domain layer supplies learner state, prerequisite graph, teaching rules, evaluation rules and study content.
+---
+
+## Event Scope
+- **Included:** Personalized student state, diagnostic tie-breakers, prerequisite edge validation, evidence-grounded reteaching, targeted re-testing, backward agentic loop (`GO_DEEPER`), human escalation (`WAITING_FOR_HUMAN`), second encounter preference transfer.
+- **Deliberately Excluded:** Capstone project stress testing, team matching, faculty dashboards, voice, multilingual translation, universal web search, formal academic grading.
+
+---
 
 ## Team
-- Rajpriyan S — Team Lead / Designer
-- Megala M — UI/UX
-- Jeevananthan K — Backend / Builder
-- Anushya M — Frontend / DB
-- Dhanush S — Verifier / QA
-
-## Submission
-The Google Form asks for the GitHub repository URL and the AgentSpec file. The submission master is `AGENTSPEC.md`.
-
-## Current status
-**Design/spec ready. Implementation is not claimed as complete yet.**
+- **Rajpriyan S** — Team Lead / Agent Handler (Designer)
+- **Megala M** — UI/UX Designer (UX Support)
+- **Jeevananthan K** — Backend Developer (Builder)
+- **Anushya M** — Frontend / Database Developer (Builder)
+- **Dhanush S** — QA and Tester (Verifier)
