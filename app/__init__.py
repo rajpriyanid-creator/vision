@@ -1,1 +1,0 @@
-"""VISION application entry points."""
