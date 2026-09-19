@@ -38,10 +38,41 @@ export const ExerciseRenderer: React.FC<ExerciseRendererProps> = ({
 
   const format = (exercise.format || exercise.question_format || 'mcq').toLowerCase();
   const prompt = exercise.prompt || exercise.question_text || 'Evaluate the following scenario:';
-  const options = exercise.options || exercise.mcq_options || [];
+  const rawOptions = exercise.options || exercise.mcq_options || [];
   const starterCode = exercise.starter_code || exercise.code_starter || '';
   const difficulty = exercise.difficulty;
   const conceptTitle = exercise.concept_title || recheckConcept || session?.target_concept || 'Concept';
+
+  // Normalize options into a flat array of { key, label, fullValue }
+  let optionsList: Array<{ key: string; label: string; fullValue: string }> = [];
+  if (Array.isArray(rawOptions) && rawOptions.length > 0) {
+    optionsList = rawOptions.map((opt: any, idx: number) => {
+      const letter = String.fromCharCode(65 + idx);
+      if (typeof opt === 'string') {
+        return { key: letter, label: opt, fullValue: opt };
+      } else if (typeof opt === 'object' && opt !== null) {
+        const key = opt.key || opt.id || letter;
+        const text = opt.text || opt.label || opt.value || JSON.stringify(opt);
+        return { key: String(key), label: String(text), fullValue: `${key}: ${text}` };
+      }
+      return { key: letter, label: String(opt), fullValue: String(opt) };
+    });
+  } else if (typeof rawOptions === 'object' && rawOptions !== null && Object.keys(rawOptions).length > 0) {
+    optionsList = Object.entries(rawOptions).map(([k, v]) => {
+      const textVal = typeof v === 'string' ? v : (v as any)?.text || String(v);
+      return { key: k, label: textVal, fullValue: `${k}: ${textVal}` };
+    });
+  }
+
+  // Fallback for MCQ if no options provided
+  if (format === 'mcq' && optionsList.length === 0) {
+    optionsList = [
+      { key: 'A', label: `Primary structural requirement for ${conceptTitle}`, fullValue: `A: Primary structural requirement for ${conceptTitle}` },
+      { key: 'B', label: `Secondary execution mode without structural invariants`, fullValue: `B: Secondary execution mode without structural invariants` },
+      { key: 'C', label: `Direct state mutation bypassing prerequisite checks`, fullValue: `C: Direct state mutation bypassing prerequisite checks` },
+      { key: 'D', label: `External module reference without state persistence`, fullValue: `D: External module reference without state persistence` }
+    ];
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,13 +168,16 @@ export const ExerciseRenderer: React.FC<ExerciseRendererProps> = ({
               Select the correct statement:
             </span>
             <div className="flex flex-col gap-2.5">
-              {options.map((option: string, idx: number) => {
-                const isSelected = selectedOption === option;
+              {optionsList.map((option, idx) => {
+                const isSelected =
+                  selectedOption === option.fullValue ||
+                  selectedOption === option.key ||
+                  selectedOption === option.label;
                 return (
                   <button
                     key={idx}
                     type="button"
-                    onClick={() => setSelectedOption(option)}
+                    onClick={() => setSelectedOption(option.fullValue)}
                     className={`p-4 rounded-xl border text-left text-sm transition-all flex items-center justify-between group ${
                       isSelected
                         ? 'bg-cyan-500/15 border-[#00D2FF] text-white shadow-[0_0_16px_rgba(0,210,255,0.25)]'
@@ -162,7 +196,10 @@ export const ExerciseRenderer: React.FC<ExerciseRendererProps> = ({
                           <span className="material-symbols-outlined text-xs font-bold">check</span>
                         )}
                       </div>
-                      <span className="leading-snug">{option}</span>
+                      <span className="leading-snug">
+                        <strong className="text-[#00D2FF] font-mono mr-2">{option.key}.</strong>
+                        {option.label}
+                      </span>
                     </div>
                   </button>
                 );
