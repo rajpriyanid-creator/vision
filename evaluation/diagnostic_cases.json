@@ -1,0 +1,137 @@
+[
+  {
+    "case_id": "case_001",
+    "concept": "binary_tree_inorder_traversal",
+    "student_answer": "I visited the root node first, then visited the left subtree, then the right subtree.",
+    "intended_cause": "misconception",
+    "expected_status": "unresolved",
+    "expected_gap": "recursion",
+    "category": "misconception"
+  },
+  {
+    "case_id": "case_002",
+    "concept": "binary_tree_inorder_traversal",
+    "student_answer": "Inorder traversal visits left subtree, root node, then right subtree.",
+    "intended_cause": "mastery",
+    "expected_status": "demonstrated",
+    "expected_gap": "binary_tree_inorder_traversal",
+    "category": "genuine_prerequisite_gap"
+  },
+  {
+    "case_id": "case_003",
+    "concept": "binary_tree_inorder_traversal",
+    "student_answer": "I am not sure, maybe left first or root first depending on the loop?",
+    "intended_cause": "ambiguous",
+    "expected_status": "uncertain",
+    "expected_gap": "recursion",
+    "category": "ambiguous"
+  },
+  {
+    "case_id": "case_004",
+    "concept": "binary_tree_inorder_traversal",
+    "student_answer": "Got a Segmentation Fault null pointer error when attempting to access node.left.",
+    "intended_cause": "prerequisite_gap",
+    "expected_status": "unresolved",
+    "expected_gap": "recursion",
+    "category": "genuine_prerequisite_gap"
+  },
+  {
+    "case_id": "case_005",
+    "concept": "recursion",
+    "student_answer": "The function keeps calling itself without stopping until stack overflow occurs.",
+    "intended_cause": "prerequisite_gap",
+    "expected_status": "unresolved",
+    "expected_gap": "call_stack_reasoning",
+    "category": "deeper_prerequisite"
+  },
+  {
+    "case_id": "case_006",
+    "concept": "recursion",
+    "student_answer": "Recursion has a base case to terminate execution and return values back to callers.",
+    "intended_cause": "mastery",
+    "expected_status": "demonstrated",
+    "expected_gap": "recursion",
+    "category": "valid_prerequisite"
+  },
+  {
+    "case_id": "case_007",
+    "concept": "call_stack_reasoning",
+    "student_answer": "Each function call pushes a frame to stack, and base case unwinds frames in LIFO order.",
+    "intended_cause": "mastery",
+    "expected_status": "demonstrated",
+    "expected_gap": "call_stack_reasoning",
+    "category": "valid_prerequisite"
+  },
+  {
+    "case_id": "case_008",
+    "concept": "binary_tree_inorder_traversal",
+    "student_answer": "I made a small typo in variable name `rroot` instead of `root`.",
+    "intended_cause": "careless",
+    "expected_status": "unresolved",
+    "expected_gap": "binary_tree_inorder_traversal",
+    "category": "careless_error"
+  },
+  {
+    "case_id": "case_009",
+    "concept": "cpu_scheduling",
+    "student_answer": "FCFS always yields lower average waiting time than SJF.",
+    "intended_cause": "misconception",
+    "expected_status": "unresolved",
+    "expected_gap": "process_state_transitions",
+    "category": "misconception"
+  },
+  {
+    "case_id": "case_010",
+    "concept": "cpu_scheduling",
+    "student_answer": "Round robin uses time quantum slices to allocate CPU across ready queue processes.",
+    "intended_cause": "mastery",
+    "expected_status": "demonstrated",
+    "expected_gap": "cpu_scheduling",
+    "category": "valid_prerequisite"
+  },
+  {
+    "case_id": "case_011",
+    "concept": "process_state_transitions",
+    "student_answer": "Process transitions from Running to Blocked on I/O request, then Ready on I/O completion.",
+    "intended_cause": "mastery",
+    "expected_status": "demonstrated",
+    "expected_gap": "process_state_transitions",
+    "category": "valid_prerequisite"
+  },
+  {
+    "case_id": "case_012",
+    "concept": "binary_tree_inorder_traversal",
+    "student_answer": "Unrelated node processing with arbitrary quantum slices.",
+    "intended_cause": "invalid_edge",
+    "expected_status": "unresolved",
+    "expected_gap": "binary_tree_inorder_traversal",
+    "category": "invalid_prerequisite"
+  },
+  {
+    "case_id": "case_013",
+    "concept": "binary_tree_inorder_traversal",
+    "student_answer": "idk",
+    "intended_cause": "insufficient_evidence",
+    "expected_status": "uncertain",
+    "expected_gap": "recursion",
+    "category": "insufficient_evidence"
+  },
+  {
+    "case_id": "case_014",
+    "concept": "recursion",
+    "student_answer": "I forgot to add the return statement and confused base case with loop condition.",
+    "intended_cause": "competing_causes",
+    "expected_status": "unresolved",
+    "expected_gap": "call_stack_reasoning",
+    "category": "competing_causes"
+  },
+  {
+    "case_id": "case_015",
+    "concept": "call_stack_reasoning",
+    "student_answer": "Stack overflow happens because frames overflow memory bounds without base case return.",
+    "intended_cause": "mastery",
+    "expected_status": "demonstrated",
+    "expected_gap": "call_stack_reasoning",
+    "category": "deeper_prerequisite"
+  }
+]

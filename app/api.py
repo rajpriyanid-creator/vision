@@ -1,37 +1,32 @@
-"""FastAPI backend for the VISION adaptive study experience.
-
-Zero hardcoded courses. Dynamic context readiness. Live agent trace.
-All course/concept choices happen at runtime.
+"""
+VISION FastAPI Application — Full-stack REST API for Adaptive Study Engine.
+Zero hardcoded courses. Dynamic prerequisite graphs, agent orchestration,
+and persistent learner state management.
 """
 
 from __future__ import annotations
-
-import glob
 import json
 import os
 from pathlib import Path
 from typing import Any, Optional
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from slice.controller import WorkflowController
 from slice.mongo_state_manager import MongoStateManager
-from slice.state_manager import StateManager
 
 ROOT = Path(__file__).resolve().parent.parent
 
-
-# ─── Request / Response Models ──────────────────────────────────────────────
+# ─── Request Schemas ───────────────────────────────────────────────────────
 
 class StartRequest(BaseModel):
-    student_id: str = Field(min_length=2, max_length=80)
+    student_id: str = Field(default="demo_student", min_length=1, max_length=80)
     subject: str = Field(min_length=2, max_length=120)
     target_concept: str = Field(min_length=2, max_length=160)
     course_id: Optional[str] = Field(default=None, max_length=80)
-    learning_goal: Optional[str] = Field(default=None, max_length=200)
     learner_level: str = Field(default="intermediate", max_length=40)
+    learning_goal: Optional[str] = Field(default="understand", max_length=200)
     user_notes: Optional[str] = Field(default=None, max_length=2000)
 
 
@@ -99,6 +94,20 @@ def _public_session(run_id: str) -> dict[str, Any]:
     if not raw:
         raise HTTPException(status_code=404, detail="Study session not found")
     session = raw["session"]
+    exercise = raw.get("active_exercise")
+    if exercise and isinstance(exercise, dict):
+        exercise = dict(exercise)
+        exercise.pop("expected_answer_hint", None)
+        exercise["prompt"] = exercise.get("prompt") or exercise.get("question_text", "")
+        exercise["format"] = exercise.get("format") or exercise.get("question_format", "free_text")
+        exercise["options"] = exercise.get("options") or exercise.get("mcq_options", [])
+        exercise["starter_code"] = exercise.get("starter_code") or exercise.get("code_starter", "")
+
+    teaching_action = raw.get("teaching_action")
+    if teaching_action and isinstance(teaching_action, dict):
+        teaching_action = dict(teaching_action)
+        teaching_action["explanation"] = teaching_action.get("explanation") or teaching_action.get("explanation_text", "")
+
     response = {
         "run_id": run_id,
         "current_state": session["current_state"],
@@ -114,8 +123,8 @@ def _public_session(run_id: str) -> dict[str, Any]:
         "prereq_quiz": raw.get("active_prereq_quiz"),
         "quiz_eval": raw.get("last_quiz_eval"),
         "survey_responses": raw.get("survey_responses"),
-        "exercise": raw.get("active_exercise"),
-        "teaching_action": raw.get("teaching_action"),
+        "exercise": exercise,
+        "teaching_action": teaching_action,
         "resource_selection": raw.get("resource_selection"),
         "human_question": raw.get("human_question"),
         "history": raw.get("history", []),
@@ -150,8 +159,6 @@ def courses() -> list[dict[str, Any]]:
     """Discover available course fixtures from domain/ directory.
     Always includes a 'custom' entry for typing any subject."""
     result = []
-
-    # Scan domain/ for *.json graph files
     domain_dir = ROOT / "domain"
     for path in sorted(domain_dir.glob("*.json")):
         if path.name.startswith("_") or "rubric" in path.name:
@@ -176,7 +183,6 @@ def courses() -> list[dict[str, Any]]:
         except Exception:
             continue
 
-    # Always add a custom entry
     result.append({
         "course_id": "custom",
         "name": "Custom — type your own",
@@ -375,4 +381,3 @@ else:
     @app.get("/")
     def root() -> dict[str, str]:
         return {"name": "VISION Adaptive Study API", "docs": "/docs"}
-

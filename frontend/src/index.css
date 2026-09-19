@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@layer base {
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #090D16;
+    color: #DFE8F2;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #090D16;
+}
+::-webkit-scrollbar-thumb {
+  background: #1E293B;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00D2FF40;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.35; filter: drop-shadow(0 0 6px rgba(0, 210, 255, 0.4)); }
+  50% { opacity: 0.8; filter: drop-shadow(0 0 14px rgba(0, 210, 255, 0.8)); }
+}
+
+@keyframes cyanPulse {
+  0%, 100% { box-shadow: 0 0 15px rgba(0, 210, 255, 0.25), inset 0 0 10px rgba(0, 210, 255, 0.1); }
+  50% { box-shadow: 0 0 30px rgba(0, 210, 255, 0.5), inset 0 0 18px rgba(0, 210, 255, 0.25); }
+}
+
+.pulse-cyan {
+  animation: cyanPulse 2.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.glow-cyan-sm {
+  box-shadow: 0 0 12px rgba(0, 210, 255, 0.25);
+}
+
+.glow-cyan-md {
+  box-shadow: 0 0 24px rgba(0, 210, 255, 0.35);
+}

@@ -1,49 +1,53 @@
 """
-VISION Exercise Agent — Fully dynamic, open-domain.
-Zero hardcoded questions. Generates targeted assessment questions
-via Gemini for ANY concept in ANY subject.
+VISION Exercise Agent — Fully dynamic, open-domain adaptive assessment engine.
+Zero hardcoded questions. Adapts exercise format (MCQ, Fill-in, Free Text, Coding)
+to the concept, subject, learner level, learning goal, and state machine phase.
 """
 
 from __future__ import annotations
-from typing import Literal
+from typing import Literal, Optional
 from slice.state_manager import Exercise
 from slice.llm_client import LLMClient
 
 
 class ExerciseAgent:
     """
-    Targeted Exercise Generator.
-    Generates conceptual questions for any subject using Gemini.
-    No hardcoded questions — ever.
+    Adaptive Assessment Engine.
+    Generates targeted assessment exercises for ANY concept in ANY subject.
+    Adapts exercise format based on workflow state:
+      - initial_target: MCQ / Reasoning
+      - prereq_recheck: Targeted fill-in or MCQ
+      - target_retest: Applied problem or Coding exercise
+      - tie_breaker: Single-step Exit Ticket
     """
 
-    SYSTEM_PROMPT = """You are the VISION Exercise Agent.
+    SYSTEM_PROMPT = """You are the VISION Exercise Agent — an expert assessment author.
 
-Your job: generate ONE clear, targeted question to assess a student's understanding 
-of a specific concept. Based on the context and topic, choose the BEST question format:
-- "mcq": Multiple Choice Question with 4 distinct options
-- "fill_in_blank": A sentence template containing "___"
-- "coding_problem": A small programming challenge with starter code and test cases
-- "free_text": Conceptual short answer explanation
+Your job: generate ONE clear, targeted exercise to evaluate student understanding of a specific concept.
 
-Exercise types:
-- initial_target: First-time test of target concept
-- prereq_recheck: Test if prerequisite gap is repaired
-- target_retest: Re-verify target concept after prerequisite repair
-- tie_breaker: Clarifying exit ticket for ambiguous answer
+Question Formats:
+- "mcq": 4 distinct options with exactly 1 correct answer.
+- "fill_in_blank": Template string containing "___".
+- "coding_problem": Programming problem with starter code, language, and 2+ test cases.
+- "free_text": Short-answer conceptual reasoning question.
+
+Rules:
+- Adapt the format to the concept, subject, level, and learning goal.
+- Make questions rigorous yet fair.
+- Do NOT output answer keys or hidden secrets in question_text.
 
 Respond with JSON only:
 {
   "question_format": "mcq | fill_in_blank | coding_problem | free_text",
-  "question_text": "<clear question or problem statement>",
-  "mcq_options": ["Option A", "Option B", "Option C", "Option D"], // required if mcq
-  "blank_template": "<sentence with ___ placeholder>", // required if fill_in_blank
-  "code_starter": "<starter code template>", // required if coding_problem
-  "language": "python | javascript | cpp | java", // for coding_problem
-  "test_cases": [ // required if coding_problem (at least 2 test cases)
+  "question_text": "<problem statement>",
+  "mcq_options": ["Option A", "Option B", "Option C", "Option D"],
+  "blank_template": "<sentence with ___ placeholder>",
+  "code_starter": "<starter code template>",
+  "language": "python | javascript | cpp | java",
+  "test_cases": [
     {"input": "...", "expected_output": "...", "description": "..."}
   ],
-  "expected_answer_hint": "<rubric note>"
+  "expected_answer_hint": "<internal grading criteria note>"
 }"""
 
     def __init__(self):
@@ -55,64 +59,79 @@ Respond with JSON only:
         concept: str,
         exercise_type: Literal["prereq_recheck", "target_retest", "tie_breaker", "initial_target"],
         subject: str = "",
-        context: str = ""
+        context: str = "",
+        learner_level: str = "intermediate",
+        learning_goal: str = "understand",
+        attempt_count: int = 0
     ) -> Exercise:
         concept_clean = concept.replace("_", " ").title()
 
         if not self.llm.is_live:
-            # Code / programming topics get coding problems or MCQs
-            is_coding = any(kw in concept.lower() or kw in subject.lower() for kw in ("tree", "stack", "recursion", "array", "pointer", "loop", "python", "code", "list"))
-            if is_coding:
-                return Exercise(
-                    run_id=run_id,
-                    concept=concept,
-                    exercise_type=exercise_type,
-                    question_format="coding_problem",
-                    question_text=f"Implement a function to process `{concept_clean}`. Complete the function so all test cases pass.",
-                    rubric_ref=f"dynamic:{subject}:{concept}",
-                    code_starter=f"def solution(input_val):\n    # TODO: Implement solution for {concept_clean}\n    pass",
-                    language="python",
-                    test_cases=[
-                        {"input": "root = [1, 2, 3]", "expected_output": "[2, 1, 3]", "description": "Basic tree / node processing"},
-                        {"input": "root = None", "expected_output": "[]", "description": "Edge case: Empty input / null pointer"}
-                    ]
-                )
-            elif exercise_type == "tie_breaker":
+            # Deterministic fallback adapting format to exercise type
+            if exercise_type == "tie_breaker":
                 return Exercise(
                     run_id=run_id,
                     concept=concept,
                     exercise_type=exercise_type,
                     question_format="mcq",
-                    question_text=f"Concept Exit Ticket: Which step is performed FIRST in {concept_clean}?",
+                    question_text=f"Exit Ticket: Which foundational property best defines {concept_clean}?",
                     rubric_ref=f"dynamic:{subject}:{concept}",
                     mcq_options=[
-                        f"Visit the left subtree / prerequisite",
-                        f"Process the root node directly",
-                        f"Skip to the right child",
-                        f"Terminate execution"
+                        f"First-in, first-evaluated structural invariant",
+                        f"Direct element placement without ordering",
+                        f"Unconditional termination of execution",
+                        f"Arbitrary secondary reference assignment"
                     ]
+                )
+            elif exercise_type == "prereq_recheck":
+                return Exercise(
+                    run_id=run_id,
+                    concept=concept,
+                    exercise_type=exercise_type,
+                    question_format="fill_in_blank",
+                    question_text=f"Complete the core rule for {concept_clean}: Before processing higher-level operations, the system must first evaluate the ___ state.",
+                    blank_template=f"Before processing higher-level operations, the system must first evaluate the ___ state.",
+                    rubric_ref=f"dynamic:{subject}:{concept}"
+                )
+            elif attempt_count > 1 or exercise_type == "target_retest":
+                return Exercise(
+                    run_id=run_id,
+                    concept=concept,
+                    exercise_type=exercise_type,
+                    question_format="free_text",
+                    question_text=f"Apply your understanding of {concept_clean} to solve a practical scenario in {subject or 'this domain'}. Describe your step-by-step approach.",
+                    rubric_ref=f"dynamic:{subject}:{concept}"
                 )
             else:
                 return Exercise(
                     run_id=run_id,
                     concept=concept,
                     exercise_type=exercise_type,
-                    question_format="free_text",
-                    question_text=f"Explain {concept_clean} in your own words and give one concrete example.",
-                    rubric_ref=f"dynamic:{subject}:{concept}"
+                    question_format="mcq",
+                    question_text=f"What is the primary function of {concept_clean} in {subject or 'this topic'}?",
+                    rubric_ref=f"dynamic:{subject}:{concept}",
+                    mcq_options=[
+                        f"Establishes structural correctness and initial conditions",
+                        f"Forces immediate program termination",
+                        f"Bypasses prerequisite verification",
+                        f"Disables state persistence across sessions"
+                    ]
                 )
 
         user_prompt = f"""Subject: {subject or 'General'}
-Concept to test: {concept}
-Exercise type: {exercise_type}
-Previous Agent Context: {context or 'None'}
+Concept: {concept_clean}
+Exercise Type: {exercise_type}
+Learner Level: {learner_level}
+Learning Goal: {learning_goal}
+Attempt Count: {attempt_count}
+Workflow Context: {context or 'None'}
 
-Generate a targeted assessment exercise (MCQ, Fill-in, Coding, or Free Text) based on the context and return JSON."""
+Generate a targeted assessment exercise (MCQ, Fill-in, Coding, or Free Text) and return JSON."""
 
         result = self.llm.chat_json(self.SYSTEM_PROMPT, user_prompt, max_tokens=768)
 
-        q_format = result.get("question_format") or "free_text"
-        question = result.get("question_text") or f"Please explain {concept_clean} in your own words with an example."
+        q_format = result.get("question_format") or "mcq"
+        question = result.get("question_text") or f"What is the key mechanism behind {concept_clean}?"
         mcq_opts = result.get("mcq_options") or []
         blank_tmpl = result.get("blank_template")
         starter = result.get("code_starter")
