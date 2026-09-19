@@ -50,6 +50,17 @@ Respond with plain text (formatted markdown is OK). No JSON."""
         subject: str = ""
     ) -> TeachingAction:
         concept = resource.concept
+        concept_title = concept.replace("_", " ").title()
+
+        # If resource is missing or unverified, do NOT waste LLM API keys
+        if not resource.excerpt_quote or resource.verification_status != "verified" or "no approved course" in resource.excerpt_quote.lower():
+            return TeachingAction(
+                run_id=run_id,
+                concept=concept,
+                teaching_mode="resource_unavailable",
+                explanation_text=f"Resource not available in course materials for '{concept_title}'. Human instructor escalation required.",
+                evidence_ref=resource.source_id or "material_absent"
+            )
 
         # Pick preferred teaching mode
         all_modes = ["step_by_step", "analogy", "code_trace", "visual_diagram", "conceptual", "socratic"]
@@ -90,3 +101,18 @@ Write the reteaching lesson for this prerequisite concept."""
             explanation_text=lesson,
             evidence_ref=resource.source_id
         )
+
+    def cross_check_resource(self, resource: ResourceSelection, target_concept: str = "") -> bool:
+        """Lightweight Resource Agent Cross-Check to verify quote relevance before reteaching."""
+        if not resource or not resource.excerpt_quote:
+            return False
+        if resource.verification_status == "could_not_establish":
+            return False
+        # Keyword & length check fallback offline
+        if not self.llm.is_live:
+            return len(resource.excerpt_quote.strip()) > 10
+
+        prompt = f"Target Concept: {target_concept or resource.concept}\nRetrieved Excerpt: {resource.excerpt_quote}\nIs this excerpt educationally relevant and accurate for teaching this concept? Respond with JSON: {{\"relevant\": true/false}}"
+        raw = self.llm.chat("You verify educational material relevance. Respond with JSON.", prompt, max_tokens=100)
+        parsed = LLMClient._parse_json(raw)
+        return bool(parsed.get("relevant", True))

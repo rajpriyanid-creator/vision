@@ -77,6 +77,7 @@ class LLMClient:
         )
 
         self._sdk = None
+        self._cache: Dict[str, str] = {}
         self._init_sdk()
         print(f"[VISION LLM] Provider: {self.provider} | Model: {self.model}")
 
@@ -109,9 +110,13 @@ class LLMClient:
     # ─────────────────────────── Public API ────────────────────────────
 
     def chat(self, system: str, user: str, max_tokens: int = 1024) -> str:
-        """Returns raw text response."""
+        """Returns raw text response with in-memory caching for speed & quota conservation."""
         if self._sdk_type == "mock":
             return f"[Mock response] {user[:100]}"
+
+        cache_key = f"{self.model}:{max_tokens}:{hash(system)}:{hash(user)}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
 
         try:
             if self._sdk_type == "google_genai":
@@ -126,7 +131,9 @@ class LLMClient:
                     contents=user,
                     config=config
                 )
-                return response.text or ""
+                text_out = response.text or ""
+                self._cache[cache_key] = text_out
+                return text_out
 
             elif self._sdk_type == "openai_compat":
                 resp = self._sdk.chat.completions.create(
@@ -138,7 +145,9 @@ class LLMClient:
                     max_tokens=max_tokens,
                     temperature=0.3,
                 )
-                return resp.choices[0].message.content or ""
+                text_out = resp.choices[0].message.content or ""
+                self._cache[cache_key] = text_out
+                return text_out
 
         except Exception as e:
             err_str = str(e)
@@ -215,6 +224,27 @@ class LLMClient:
         json_system = system + "\n\nIMPORTANT: Respond with valid JSON only. No markdown, no code blocks, no extra text."
         raw = self.chat(json_system, user, max_tokens=max_tokens)
         return self._parse_json(raw)
+
+    def batch_chat_json(self, system: str, requests: list[dict[str, Any]], max_tokens: int = 2048) -> list[dict[str, Any]]:
+        """Packs multiple requests into a single structured LLM prompt, then splits and returns parsed results."""
+        if not requests:
+            return []
+        if len(requests) == 1:
+            return [self.chat_json(system, json.dumps(requests[0]), max_tokens=max_tokens)]
+
+        packed_user = json.dumps({"batch_requests": requests}, indent=2)
+        batch_system = (
+            system + "\n\nYou are processing a BATCH of requests. "
+            "Return a JSON object containing a 'results' array where each item corresponds to the request by index.\n"
+            "Format: {\"results\": [ { ... }, { ... } ]}"
+        )
+        parsed = self.chat_json(batch_system, packed_user, max_tokens=max_tokens)
+        results = parsed.get("results", [])
+        if isinstance(results, list) and len(results) == len(requests):
+            return results
+
+        # Fallback to individual calls if batch formatting fails
+        return [self.chat_json(system, json.dumps(req), max_tokens=max_tokens) for req in requests]
 
     # ─────────────────────────── Helpers ───────────────────────────────
 

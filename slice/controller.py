@@ -122,6 +122,15 @@ class WorkflowController:
         self.handoff_recorder.record(run_id, "ExerciseAgent", "Controller", "initial_question",
                                      plan["reasoning"], [target_id], [exercise.question_text[:80]])
 
+        session.agent_activities = {
+            "SupervisorAgent": f"Generated prerequisite DAG for {subject} / {target_concept}",
+            "DiagnosticAgent": "Idle — monitoring learner attempts",
+            "ResourceAgent": f"Retrieved resources for {target_concept} ({len(resource.web_resources)} web sources)",
+            "TutorAgent": f"Delivered initial lesson mode '{teaching.teaching_mode}' for {target_concept}",
+            "ExerciseAgent": f"Generated {exercise.question_format.upper()} exercise for {target_concept}",
+            "EvaluationAgent": "Awaiting student response / code submission"
+        }
+
         session_data = {
             "subject": subject,
             "target_concept": target_concept,
@@ -130,6 +139,7 @@ class WorkflowController:
             "concept_titles": concept_titles,
             "active_exercise": exercise.model_dump(),
             "teaching_action": teaching.model_dump(),
+            "resource_selection": resource.model_dump(),
             "dag": course_context.dependency_graph,
             "history": [],
             "taught_concepts": []
@@ -147,6 +157,7 @@ class WorkflowController:
             "dag": course_context.dependency_graph,
             "concept_titles": concept_titles,
             "teaching_action": teaching.model_dump(),
+            "resource_selection": resource.model_dump(),
             "exercise": exercise.model_dump(),
             "session": session.model_dump(),
             "call_count": session.call_count
@@ -154,8 +165,16 @@ class WorkflowController:
 
     # ──────────────────────────── Answer Submission ──────────────────────────
 
-    def submit_answer(self, run_id: str, student_answer: str) -> Dict[str, Any]:
-        """Core state machine step — evaluates student answer and drives transitions."""
+    def submit_answer(
+        self,
+        run_id: str,
+        student_answer: str,
+        selected_option: Optional[str] = None,
+        code_submission: Optional[str] = None,
+        test_results: Optional[list] = None,
+        user_notes: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Core state machine step — evaluates student answer/code and drives transitions."""
         raw = self.state_manager.get_study_session(run_id)
         if not raw:
             raise ValueError(f"Session {run_id} not found.")
@@ -182,17 +201,21 @@ class WorkflowController:
         active_ex = data["active_exercise"]
         subject = data.get("subject", "")
 
-        # Record attempt
+        # Record attempt with multi-format responses & test case results
         attempt = Attempt(
             run_id=run_id,
             concept=current_concept,
             question=active_ex["question_text"],
-            student_answer=student_answer
+            student_answer=student_answer or selected_option or (code_submission[:100] if code_submission else ""),
+            selected_option=selected_option,
+            code_submission=code_submission,
+            test_results=test_results or []
         )
         data["history"].append(attempt.model_dump())
 
         # State: EVALUATE
         session.current_state = "EVALUATE"
+        session.agent_activities["EvaluationAgent"] = f"Evaluating response ({active_ex.get('question_format', 'free_text')})"
         evaluation = self.evaluation_agent.evaluate_attempt(attempt)
         session.call_count += 1
         self.handoff_recorder.record(run_id, "EvaluationAgent", "Controller", "evaluate",
@@ -255,17 +278,18 @@ class WorkflowController:
         # ── uncertain ─────────────────────────────────────────────────────────
         elif evaluation.status == "uncertain":
             session.current_state = "TIE_BREAKER"
+            tie_exit_ticket = self.diagnostic.generate_tie_breaker(current_concept, subject=subject)
             tie_q = self.exercise_agent.generate_exercise(
                 run_id, current_concept, "tie_breaker",
                 subject=subject,
-                context=f"Student gave ambiguous answer: '{student_answer[:80]}'"
+                context=f"Exit Ticket: {tie_exit_ticket.get('question')} | Ambiguous student answer: '{student_answer[:80]}'"
             )
             session.call_count += 1
             data["active_exercise"] = tie_q.model_dump()
             self.state_manager.save_study_session(session, data)
-            return self._resp(run_id, "PRACTICE", session,
+            return self._resp(run_id, "TIE_BREAKER", session,
                               exercise=tie_q.model_dump(),
-                              message="🤔 Answer was ambiguous — here's a clarifying question.",
+                              message="🤔 Answer was ambiguous — here's a Concept-Gap Exit Ticket to clarify.",
                               evaluation=evaluation.model_dump())
 
         # ── unresolved ────────────────────────────────────────────────────────
@@ -296,7 +320,7 @@ class WorkflowController:
                 session.current_state = "WAITING_FOR_HUMAN"
                 hq = HumanQuestion(
                     run_id=run_id,
-                    question=f"Diagnostic Agent proposed '{gap.candidate_prerequisite}' as prerequisite for '{current_concept}', but this edge is not in the course DAG. What should we do?",
+                    question=f"Diagnostic Agent proposed '{gap.candidate_prerequisite}' as prerequisite for '{current_concept}', but edge validation status is 'could_not_establish'. What should we do?",
                     options=["Force the prerequisite (add edge)", "Skip prerequisite — go to a known one", "Mark concept as given up"]
                 )
                 data["human_question"] = hq.model_dump()
@@ -312,12 +336,19 @@ class WorkflowController:
             resource = self.resource_agent.select_resource(run_id, target_prereq, subject=subject)
             session.call_count += 1
 
-            if resource.verification_status != "verified" or not resource.excerpt_quote:
+            is_unavail = (
+                resource.verification_status != "verified" or 
+                not resource.excerpt_quote or 
+                "no specific explanatory text" in resource.excerpt_quote.lower() or 
+                "no approved course" in resource.excerpt_quote.lower()
+            )
+
+            if is_unavail:
                 session.status = "waiting_human"
                 session.current_state = "WAITING_FOR_HUMAN"
                 hq = HumanQuestion(
                     run_id=run_id,
-                    question=f"No approved course evidence could be verified for '{target_prereq}'. Which instructor-provided resource should be used?",
+                    question=f"Resource not available: No approved course evidence could be verified for '{target_prereq}'. Which instructor-provided resource should be used?",
                     options=["Add approved notes", "Skip this prerequisite", "End session and provide manual help"],
                 )
                 data["human_question"] = hq.model_dump()
@@ -329,8 +360,11 @@ class WorkflowController:
 
             # State: RESOURCE_CROSS_CHECK
             session.current_state = "RESOURCE_CROSS_CHECK"
-            is_relevant, _ = self.validator.verify_resource_cross_check(target_prereq, resource.excerpt_quote)
+            is_relevant, cross_check_status = self.validator.verify_resource_cross_check(target_prereq, resource.excerpt_quote)
             if not is_relevant:
+                self.handoff_recorder.record(run_id, "Validator", "ResourceAgent", "resource_rejected",
+                                             f"Excerpt quote failed cross check for '{target_prereq}': {cross_check_status}",
+                                             [target_prereq], [resource.source_id])
                 resource = self.resource_agent.select_resource(run_id, target_prereq, subject=subject)
                 session.call_count += 1
 
@@ -395,7 +429,7 @@ class WorkflowController:
 
     # ──────────────────────────── Human Resume ───────────────────────────────
 
-    def resume_human_decision(self, run_id: str, decision: str) -> Dict[str, Any]:
+    def resume_human_decision(self, run_id: str, decision: str, notes: Optional[str] = None) -> Dict[str, Any]:
         raw = self.state_manager.get_study_session(run_id)
         if not raw:
             raise ValueError(f"Session {run_id} not found.")
@@ -407,8 +441,18 @@ class WorkflowController:
         session.current_state = "RESUME"
         session.revision_count = max(0, session.revision_count - 1)
 
+        decision_text = f"{decision} (Note: {notes})" if notes else decision
+
         self.handoff_recorder.record(run_id, "HumanInstructor", "Controller", "resume",
-                                     f"Decision: {decision}", [], [decision])
+                                     f"Decision: {decision_text}", [], [decision])
+
+        if any(term in decision.lower() for term in ("end", "give up", "manual")):
+            session.status = "given_up"
+            session.current_state = "SESSION_COMPLETE"
+            self.state_manager.save_study_session(session, data)
+            return self._resp(run_id, "SESSION_COMPLETE", session,
+                              message=f"Session ended by human instructor intervention. Note: {notes or 'None'}.",
+                              status="given_up")
 
         session.current_state = "PRACTICE"
         self.state_manager.save_study_session(session, data)

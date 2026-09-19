@@ -35,7 +35,11 @@ class StartRequest(BaseModel):
 
 class StepRequest(BaseModel):
     run_id: str = Field(min_length=4, max_length=80)
-    student_answer: str = Field(min_length=1, max_length=4000)
+    student_answer: Optional[str] = Field(default="", max_length=4000)
+    selected_option: Optional[str] = Field(default=None, max_length=500)
+    code_submission: Optional[str] = Field(default=None, max_length=10000)
+    test_results: Optional[list] = Field(default_factory=list)
+    user_notes: Optional[str] = Field(default=None, max_length=2000)
 
 
 class ResumeRequest(BaseModel):
@@ -90,6 +94,7 @@ def _public_session(run_id: str) -> dict[str, Any]:
         "concept_titles": raw.get("concept_titles", {}),
         "exercise": raw.get("active_exercise"),
         "teaching_action": raw.get("teaching_action"),
+        "resource_selection": raw.get("resource_selection"),
         "human_question": raw.get("human_question"),
         "history": raw.get("history", []),
         "taught_concepts": raw.get("taught_concepts", []),
@@ -201,7 +206,14 @@ def get_session(run_id: str) -> dict[str, Any]:
 @app.post("/api/session/step")
 def step_session(payload: StepRequest) -> dict[str, Any]:
     try:
-        result = controller.submit_answer(payload.run_id, payload.student_answer.strip())
+        result = controller.submit_answer(
+            run_id=payload.run_id,
+            student_answer=(payload.student_answer or "").strip(),
+            selected_option=payload.selected_option,
+            code_submission=payload.code_submission,
+            test_results=payload.test_results,
+            user_notes=payload.user_notes
+        )
         return {
             **result,
             "handoffs": storage.get_handoffs(payload.run_id),
@@ -217,7 +229,11 @@ def step_session(payload: StepRequest) -> dict[str, Any]:
 def step_session_alias(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return step_session(StepRequest(
         run_id=run_id,
-        student_answer=str(payload.get("student_answer", ""))
+        student_answer=str(payload.get("student_answer", "")),
+        selected_option=payload.get("selected_option"),
+        code_submission=payload.get("code_submission"),
+        test_results=payload.get("test_results"),
+        user_notes=payload.get("user_notes")
     ))
 
 

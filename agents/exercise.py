@@ -20,21 +20,30 @@ class ExerciseAgent:
     SYSTEM_PROMPT = """You are the VISION Exercise Agent.
 
 Your job: generate ONE clear, targeted question to assess a student's understanding 
-of a specific concept. The question should be:
-- Directly testing the target concept (not surrounding fluff)
-- Answerable in 1-3 sentences or a short code/formula
-- At the right difficulty level for the exercise type
+of a specific concept. Based on the context and topic, choose the BEST question format:
+- "mcq": Multiple Choice Question with 4 distinct options
+- "fill_in_blank": A sentence template containing "___"
+- "coding_problem": A small programming challenge with starter code and test cases
+- "free_text": Conceptual short answer explanation
 
 Exercise types:
-- initial_target: First-time test of the concept the student wants to learn
-- prereq_recheck: Test if a prerequisite gap has been repaired after reteaching
-- target_retest: Test the original target concept after prerequisite repair
-- tie_breaker: Clarifying question to resolve an ambiguous student answer
+- initial_target: First-time test of target concept
+- prereq_recheck: Test if prerequisite gap is repaired
+- target_retest: Re-verify target concept after prerequisite repair
+- tie_breaker: Clarifying exit ticket for ambiguous answer
 
 Respond with JSON only:
 {
-  "question_text": "<the question to ask the student>",
-  "expected_answer_hint": "<brief note on what a correct answer should contain>"
+  "question_format": "mcq | fill_in_blank | coding_problem | free_text",
+  "question_text": "<clear question or problem statement>",
+  "mcq_options": ["Option A", "Option B", "Option C", "Option D"], // required if mcq
+  "blank_template": "<sentence with ___ placeholder>", // required if fill_in_blank
+  "code_starter": "<starter code template>", // required if coding_problem
+  "language": "python | javascript | cpp | java", // for coding_problem
+  "test_cases": [ // required if coding_problem (at least 2 test cases)
+    {"input": "...", "expected_output": "...", "description": "..."}
+  ],
+  "expected_answer_hint": "<rubric note>"
 }"""
 
     def __init__(self):
@@ -48,39 +57,78 @@ Respond with JSON only:
         subject: str = "",
         context: str = ""
     ) -> Exercise:
+        concept_clean = concept.replace("_", " ").title()
+
         if not self.llm.is_live:
-            demo_questions = {
-                ("binary_tree_inorder_traversal", "initial_target"): "For a binary tree with left child B, root A, and right child C, what is the output sequence of an inorder traversal?",
-                ("binary_tree_inorder_traversal", "target_retest"): "For a binary tree node A with left child B and right child C, give the inorder traversal sequence and explain the order briefly.",
-                ("binary_tree_inorder_traversal", "tie_breaker"): "Before processing the current root node in inorder traversal, which subtree must be completely visited?",
-                ("recursion", "prereq_recheck"): "In a recursive tree traversal, what happens immediately when the current node pointer is NULL?",
-                ("call_stack_reasoning", "prereq_recheck"): "When a recursive call reaches its base case, how does control return through the call stack?",
-                ("tree_traversal_order", "prereq_recheck"): "What is the order of operations in an inorder traversal?",
-            }
-            question = demo_questions.get((concept, exercise_type), f"Explain {concept.replace('_', ' ')} in your own words and give one example.")
-            return Exercise(
-                run_id=run_id,
-                concept=concept,
-                exercise_type=exercise_type,
-                question_text=question,
-                rubric_ref=f"dynamic:{subject}:{concept}",
-            )
+            # Code / programming topics get coding problems or MCQs
+            is_coding = any(kw in concept.lower() or kw in subject.lower() for kw in ("tree", "stack", "recursion", "array", "pointer", "loop", "python", "code", "list"))
+            if is_coding:
+                return Exercise(
+                    run_id=run_id,
+                    concept=concept,
+                    exercise_type=exercise_type,
+                    question_format="coding_problem",
+                    question_text=f"Implement a function to process `{concept_clean}`. Complete the function so all test cases pass.",
+                    rubric_ref=f"dynamic:{subject}:{concept}",
+                    code_starter=f"def solution(input_val):\n    # TODO: Implement solution for {concept_clean}\n    pass",
+                    language="python",
+                    test_cases=[
+                        {"input": "root = [1, 2, 3]", "expected_output": "[2, 1, 3]", "description": "Basic tree / node processing"},
+                        {"input": "root = None", "expected_output": "[]", "description": "Edge case: Empty input / null pointer"}
+                    ]
+                )
+            elif exercise_type == "tie_breaker":
+                return Exercise(
+                    run_id=run_id,
+                    concept=concept,
+                    exercise_type=exercise_type,
+                    question_format="mcq",
+                    question_text=f"Concept Exit Ticket: Which step is performed FIRST in {concept_clean}?",
+                    rubric_ref=f"dynamic:{subject}:{concept}",
+                    mcq_options=[
+                        f"Visit the left subtree / prerequisite",
+                        f"Process the root node directly",
+                        f"Skip to the right child",
+                        f"Terminate execution"
+                    ]
+                )
+            else:
+                return Exercise(
+                    run_id=run_id,
+                    concept=concept,
+                    exercise_type=exercise_type,
+                    question_format="free_text",
+                    question_text=f"Explain {concept_clean} in your own words and give one concrete example.",
+                    rubric_ref=f"dynamic:{subject}:{concept}"
+                )
 
         user_prompt = f"""Subject: {subject or 'General'}
 Concept to test: {concept}
 Exercise type: {exercise_type}
-Additional context: {context or 'None'}
+Previous Agent Context: {context or 'None'}
 
-Generate a targeted assessment question and return JSON."""
+Generate a targeted assessment exercise (MCQ, Fill-in, Coding, or Free Text) based on the context and return JSON."""
 
-        result = self.llm.chat_json(self.SYSTEM_PROMPT, user_prompt, max_tokens=512)
+        result = self.llm.chat_json(self.SYSTEM_PROMPT, user_prompt, max_tokens=768)
 
-        question = result.get("question_text") or f"Please explain {concept} in your own words with an example."
+        q_format = result.get("question_format") or "free_text"
+        question = result.get("question_text") or f"Please explain {concept_clean} in your own words with an example."
+        mcq_opts = result.get("mcq_options") or []
+        blank_tmpl = result.get("blank_template")
+        starter = result.get("code_starter")
+        lang = result.get("language") or "python"
+        tests = result.get("test_cases") or []
 
         return Exercise(
             run_id=run_id,
             concept=concept,
             exercise_type=exercise_type,
             question_text=question,
-            rubric_ref=f"dynamic:{subject}:{concept}"
+            rubric_ref=f"dynamic:{subject}:{concept}",
+            question_format=q_format,
+            mcq_options=mcq_opts,
+            blank_template=blank_tmpl,
+            code_starter=starter,
+            language=lang,
+            test_cases=tests
         )

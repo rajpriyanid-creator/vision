@@ -272,7 +272,7 @@ This section maintains live symbol-to-line references for automated verification
 | Component / Module | Symbol Reference | Description |
 |---|---|---|
 | Workflow Controller | `slice/controller.py:31` - `WorkflowController` | Deterministic authority & state transitions |
-| State Manager | `slice/state_manager.py:135` - `StateManager` | In-memory student state & history persistence |
+| State Manager | `slice/state_manager.py:147` - `StateManager` | In-memory student state & history persistence |
 | Mongo State Manager | `slice/mongo_state_manager.py:20` - `MongoStateManager` | MongoDB persistent learner state manager |
 | LLM Client | `slice/llm_client.py:30` - `LLMClient` | Multi-model Gemini client & fallback escalation |
 | Validator | `slice/validator.py:5` - `Validator` | Edge & output constraint validator |
@@ -283,7 +283,7 @@ This section maintains live symbol-to-line references for automated verification
 | Evaluation Agent | `agents/evaluation.py:12` - `EvaluationAgent` | Rubric-based answer evaluator |
 | Diagnostic Agent | `agents/diagnostic.py:13` - `DiagnosticAgent` | Root-cause gap analysis agent |
 | Resource Agent | `agents/resource.py:16` - `ResourceAgent` | Excerpt quote retriever & verifier |
-| FastAPI App | `app/api.py:60` - `app` | Live REST API application server |
+| FastAPI App | `app/api.py:64` - `app` | Live REST API application server |
 | Budget Control | `slice/budget.py:39` - `Budget` | Spend limit & call budget tracking |
 | Record Store | `slice/store.py:83` - `Store` | Append-only execution record store |
 | Context Runner | `slice/runner.py:31` - `Context` | Slice execution context runner |

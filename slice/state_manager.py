@@ -36,6 +36,7 @@ class StudySession(BaseModel):
     revision_count: int = 0
     call_count: int = 0
     current_state: str = "START_STUDY"
+    agent_activities: Dict[str, str] = Field(default_factory=dict)
 
 
 class Attempt(BaseModel):
@@ -43,6 +44,9 @@ class Attempt(BaseModel):
     concept: str
     question: str
     student_answer: str
+    selected_option: Optional[str] = None
+    code_submission: Optional[str] = None
+    test_results: List[Dict[str, Any]] = Field(default_factory=list)
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -60,6 +64,8 @@ class ResourceSelection(BaseModel):
     source_id: str
     excerpt_quote: str
     verification_status: Literal["verified", "could_not_establish", "off_target"] = "verified"
+    web_resources: List[Dict[str, str]] = Field(default_factory=list)
+    user_custom_notes: Optional[str] = None
 
 
 class TeachingAction(BaseModel):
@@ -76,6 +82,12 @@ class Exercise(BaseModel):
     exercise_type: Literal["prereq_recheck", "target_retest", "tie_breaker", "initial_target"]
     question_text: str
     rubric_ref: str
+    question_format: Literal["free_text", "mcq", "fill_in_blank", "coding_problem"] = "free_text"
+    mcq_options: List[str] = Field(default_factory=list)
+    blank_template: Optional[str] = None
+    code_starter: Optional[str] = None
+    language: Optional[str] = "python"
+    test_cases: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class Evaluation(BaseModel):

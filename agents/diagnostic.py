@@ -97,3 +97,22 @@ Diagnose the root cause and return JSON."""
             confidence=min(max(confidence, 0.0), 1.0),
             evidence_refs=[reasoning[:120]]
         )
+
+    def generate_tie_breaker(self, concept: str, subject: str = "") -> dict[str, str]:
+        """Generate a 1-step Concept-Gap Exit Ticket question to distinguish careless error from deep gap."""
+        if not self.llm.is_live:
+            return {
+                "question": f"Concept-Gap Exit Ticket: When performing {concept.replace('_', ' ')}, which sub-tree or node must be completely visited BEFORE processing the current root node?",
+                "rubric": "Student must identify that left sub-tree is processed prior to root."
+            }
+
+        prompt = f"Create a lightweight 1-sentence diagnostic exit-ticket question for '{concept}' in '{subject}' to determine if an error was a careless slip or a fundamental conceptual misunderstanding."
+        raw = self.llm.chat(
+            "You craft clear 1-sentence diagnostic exit ticket questions. Return JSON: {\"question\": \"...\", \"rubric\": \"...\"}",
+            prompt, max_tokens=256
+        )
+        parsed = LLMClient._parse_json(raw)
+        return {
+            "question": parsed.get("question", f"Concept-Gap Exit Ticket: Explain the first step of {concept.replace('_', ' ')}."),
+            "rubric": parsed.get("rubric", "Demonstrate basic understanding.")
+        }

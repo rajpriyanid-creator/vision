@@ -37,14 +37,45 @@ Respond with JSON only:
         self.llm = LLMClient()
 
     def evaluate_attempt(self, attempt: Attempt) -> Evaluation:
+        # Check if attempt includes coding test case results
+        if attempt.test_results:
+            passed = [t for t in attempt.test_results if t.get("passed", False)]
+            failed = [t for t in attempt.test_results if not t.get("passed", False)]
+            if not failed:
+                return Evaluation(
+                    run_id=attempt.run_id,
+                    concept=attempt.concept,
+                    status="demonstrated",
+                    reasoning=f"✅ All {len(passed)} test cases passed successfully for code submission.",
+                    next_recommendation="Mastery confirmed. Proceed to next level."
+                )
+            else:
+                fail_details = "; ".join([f"{f.get('description', 'Test')}: Expected '{f.get('expected')}', Got '{f.get('actual')}'" for f in failed[:3]])
+                return Evaluation(
+                    run_id=attempt.run_id,
+                    concept=attempt.concept,
+                    status="unresolved",
+                    reasoning=f"❌ Failed {len(failed)} of {len(attempt.test_results)} test cases. Issues: {fail_details}",
+                    next_recommendation="Diagnose prerequisite gap based on failing test cases."
+                )
+
         if not self.llm.is_live:
             answer = attempt.student_answer.strip().lower()
             question = attempt.question.lower()
             concept = attempt.concept.lower()
 
-            # The offline evaluator is intentionally conservative: it only
-            # awards mastery when the response contains the key idea for the
-            # exact exercise. Ambiguous answers go through the tie-breaker.
+            if attempt.selected_option:
+                is_correct = any(kw in attempt.selected_option.lower() for kw in ("left", "prerequisite", "first", "correct", "a"))
+                status = "demonstrated" if is_correct else "unresolved"
+                reason = f"Selected option '{attempt.selected_option}' correctly addresses the concept." if is_correct else f"Selected option '{attempt.selected_option}' is incorrect."
+                return Evaluation(
+                    run_id=attempt.run_id,
+                    concept=attempt.concept,
+                    status=status,
+                    reasoning=reason,
+                    next_recommendation="Continue to next step." if status == "demonstrated" else "Diagnose gap."
+                )
+
             if not answer or any(token in answer for token in ("just give me", "ignore previous", "mark me as")):
                 status = "uncertain" if not answer else "unresolved"
                 reason = "The response does not provide enough evidence of understanding."
@@ -80,7 +111,7 @@ Respond with JSON only:
 
         user_prompt = f"""Concept being tested: {attempt.concept}
 Question asked: {attempt.question}
-Student's answer: {attempt.student_answer}
+Student's answer / option: {attempt.selected_option or attempt.student_answer}
 
 Grade this response and return JSON."""
 
