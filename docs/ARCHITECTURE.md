@@ -40,7 +40,7 @@ This document details the software architecture, state machine, data contracts, 
                             /          \
                            /            \
                           ▼              ▼
-                    NEXT ACTION      GO DEEPER
+                     NEXT ACTION      GO DEEPER
                                          │
                                          ▼
                                     DIAGNOSTIC
