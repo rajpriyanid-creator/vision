@@ -1,0 +1,43 @@
+{
+  "course_id": "data_structures",
+  "course_name": "Data Structures & Algorithms",
+  "root_concept": "binary_tree_inorder_traversal",
+  "nodes": [
+    {
+      "id": "binary_tree_inorder_traversal",
+      "title": "Binary Tree Inorder Traversal",
+      "description": "Traverse left subtree, visit node, traverse right subtree.",
+      "prerequisites": ["tree_traversal_order", "recursion"]
+    },
+    {
+      "id": "tree_traversal_order",
+      "title": "Tree Traversal Ordering Rules",
+      "description": "Understanding Left-Node-Right output sequence relative to root.",
+      "prerequisites": []
+    },
+    {
+      "id": "recursion",
+      "title": "Recursion",
+      "description": "Function self-calls on subproblems with termination base cases.",
+      "prerequisites": ["base_case_evaluation", "call_stack_reasoning"]
+    },
+    {
+      "id": "base_case_evaluation",
+      "title": "Base-Case Evaluation",
+      "description": "NULL node pointer checks and base-case termination rules.",
+      "prerequisites": []
+    },
+    {
+      "id": "call_stack_reasoning",
+      "title": "Call Stack Reasoning",
+      "description": "Stack frame push/pop operations, execution suspension, and return unwinding.",
+      "prerequisites": []
+    },
+    {
+      "id": "array_traversal",
+      "title": "Array Traversal",
+      "description": "Linear array iteration. Unconnected concept used for prerequisite edge rejection validation.",
+      "prerequisites": []
+    }
+  ]
+}

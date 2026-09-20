@@ -1,0 +1,32 @@
+{
+  "rubrics": [
+    {
+      "concept_id": "binary_tree_inorder_traversal",
+      "evaluations": [
+        {
+          "pattern": "root_first",
+          "misconception": "preorder_confusion",
+          "suspected_prerequisite": "traversal_ordering_rules",
+          "recommended_action": "tie_breaker_check"
+        },
+        {
+          "pattern": "cannot_trace_recursive_calls",
+          "misconception": "recursion_misunderstanding",
+          "suspected_prerequisite": "recursion",
+          "recommended_action": "reteach_prerequisite"
+        }
+      ]
+    },
+    {
+      "concept_id": "recursion",
+      "evaluations": [
+        {
+          "pattern": "missing_base_case",
+          "misconception": "infinite_recursion",
+          "suspected_prerequisite": "call_stack_reasoning",
+          "recommended_action": "go_deeper"
+        }
+      ]
+    }
+  ]
+}
