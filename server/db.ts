@@ -1,4 +1,5 @@
 import { TeachingOutcome } from './models/contracts';
+import { getCollection } from './mongo';
 
 export interface StoredSession {
   run_id: string;
@@ -89,12 +90,61 @@ class InMemoryDatabase {
   private events = new Map<string, AgentEventData[]>();
   private handoffs = new Map<string, HandoffEventData[]>();
 
+  constructor() {
+    this.loadFromMongo().catch((err) => {
+      console.warn('[DB] Initial MongoDB load warning:', err?.message || err);
+    });
+  }
+
+  async loadFromMongo(): Promise<void> {
+    try {
+      const sessCol = await getCollection('sessions');
+      if (sessCol) {
+        const mongoSessions = await sessCol.find({}).toArray();
+        for (const doc of mongoSessions) {
+          if (doc.run_id) {
+            const { _id, ...sessData } = doc as any;
+            this.sessions.set(doc.run_id, sessData as StoredSession);
+          }
+        }
+        console.log(`[MongoDB] Loaded ${mongoSessions.length} session(s) into memory.`);
+      }
+
+      const profCol = await getCollection('studentProfiles');
+      if (profCol) {
+        const mongoProfiles = await profCol.find({}).toArray();
+        for (const doc of mongoProfiles) {
+          if (doc.student_id && doc.course_id) {
+            const key = `${doc.student_id}_${doc.course_id}`;
+            const { _id, ...profData } = doc as any;
+            this.studentProfiles.set(key, profData as StudentProfileData);
+          }
+        }
+        console.log(`[MongoDB] Loaded ${mongoProfiles.length} student profile(s) into memory.`);
+      }
+    } catch (err: any) {
+      console.warn('[MongoDB] Preload skipped or failed:', err?.message || err);
+    }
+  }
+
   getSession(runId: string): StoredSession | undefined {
     return this.sessions.get(runId);
   }
 
   saveSession(session: StoredSession): void {
     this.sessions.set(session.run_id, session);
+    // Async background sync to MongoDB Atlas
+    getCollection('sessions')
+      .then((col) => {
+        if (col) {
+          return col.updateOne(
+            { run_id: session.run_id },
+            { $set: session },
+            { upsert: true }
+          );
+        }
+      })
+      .catch((err) => console.error('[MongoDB] Error saving session:', err?.message || err));
   }
 
   getStudentProfile(studentId: string, courseId = 'dynamic'): StudentProfileData {
@@ -124,6 +174,18 @@ class InMemoryDatabase {
   saveStudentProfile(profile: StudentProfileData): void {
     const key = `${profile.student_id}_${profile.course_id}`;
     this.studentProfiles.set(key, profile);
+    // Async background sync to MongoDB Atlas
+    getCollection('studentProfiles')
+      .then((col) => {
+        if (col) {
+          return col.updateOne(
+            { student_id: profile.student_id, course_id: profile.course_id },
+            { $set: profile },
+            { upsert: true }
+          );
+        }
+      })
+      .catch((err) => console.error('[MongoDB] Error saving student profile:', err?.message || err));
   }
 
   getStudentSessions(studentId: string): StoredSession[] {
@@ -141,6 +203,18 @@ class InMemoryDatabase {
       this.events.set(runId, []);
     }
     this.events.get(runId)!.push(event);
+    // Async background sync to MongoDB Atlas
+    getCollection('agentEvents')
+      .then((col) => {
+        if (col) {
+          return col.updateOne(
+            { run_id: runId },
+            { $push: { events: event } as any },
+            { upsert: true }
+          );
+        }
+      })
+      .catch((err) => console.error('[MongoDB] Error saving agent event:', err?.message || err));
   }
 
   getEvents(runId: string): AgentEventData[] {
@@ -152,6 +226,18 @@ class InMemoryDatabase {
       this.handoffs.set(runId, []);
     }
     this.handoffs.get(runId)!.push(handoff);
+    // Async background sync to MongoDB Atlas
+    getCollection('handoffs')
+      .then((col) => {
+        if (col) {
+          return col.updateOne(
+            { run_id: runId },
+            { $push: { handoffs: handoff } as any },
+            { upsert: true }
+          );
+        }
+      })
+      .catch((err) => console.error('[MongoDB] Error saving handoff:', err?.message || err));
   }
 
   getHandoffs(runId: string): HandoffEventData[] {
@@ -160,3 +246,4 @@ class InMemoryDatabase {
 }
 
 export const db = new InMemoryDatabase();
+
