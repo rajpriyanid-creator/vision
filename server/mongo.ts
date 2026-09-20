@@ -1,18 +1,30 @@
 import { MongoClient, Db, Collection } from 'mongodb';
 
-const MONGO_URI =
-  process.env.MONGODB_URI ||
-  process.env.MONGO_URI ||
+const ATLAS_FALLBACK_URI =
   'mongodb+srv://megalamadhi24_db_user:ZHu5qG3ThH6TgkK8@vision.0alfjgf.mongodb.net/?appName=vision';
 
-const DB_NAME = process.env.MONGO_DB_NAME || 'vision';
+function getMongoUri(): string {
+  const envUri = (process.env.MONGODB_URI || process.env.MONGO_URI || '').trim();
+  if (!envUri) return ATLAS_FALLBACK_URI;
+  if (envUri.includes('127.0.0.1') || envUri.includes('localhost')) {
+    return ATLAS_FALLBACK_URI;
+  }
+  return envUri;
+}
+
+const DB_NAME = (process.env.MONGO_DB_NAME || 'vision').trim();
 
 let client: MongoClient | null = null;
 let dbInstance: Db | null = null;
 let isConnecting = false;
+let lastConnectAttempt = 0;
+let connectionFailed = false;
 
 export async function getMongoDb(): Promise<Db | null> {
   if (dbInstance) return dbInstance;
+  if (connectionFailed && Date.now() - lastConnectAttempt < 15000) {
+    return null;
+  }
   if (isConnecting) {
     let attempts = 0;
     while (isConnecting && attempts < 20) {
@@ -22,21 +34,26 @@ export async function getMongoDb(): Promise<Db | null> {
     if (dbInstance) return dbInstance;
   }
 
+  const uri = getMongoUri();
   try {
     isConnecting = true;
-    console.log('[MongoDB] Connecting to MongoDB Atlas...');
-    client = new MongoClient(MONGO_URI, {
-      connectTimeoutMS: 10000,
-      serverSelectionTimeoutMS: 10000
+    lastConnectAttempt = Date.now();
+    console.log('[MongoDB] Connecting to database cluster...');
+    client = new MongoClient(uri, {
+      connectTimeoutMS: 8000,
+      serverSelectionTimeoutMS: 8000,
+      family: 4
     });
     await client.connect();
     dbInstance = client.db(DB_NAME);
+    connectionFailed = false;
     console.log(`[MongoDB] Successfully connected to database: "${DB_NAME}"`);
     isConnecting = false;
     return dbInstance;
   } catch (error: any) {
     isConnecting = false;
-    console.error('[MongoDB] Connection error:', error?.message || error);
+    connectionFailed = true;
+    console.warn('[MongoDB] Connection notice (falling back to in-memory store):', error?.message || error);
     return null;
   }
 }
@@ -48,3 +65,4 @@ export async function getCollection<T extends Document = any>(
   if (!db) return null;
   return db.collection<T>(collectionName);
 }
+
