@@ -42,6 +42,12 @@ export interface StoredSession {
   current_part_index?: number;
   learning_parts?: any[];
   part_transition_data?: any;
+  tutor_qna_history?: Array<{
+    question: string;
+    answer: string;
+    key_takeaway?: string;
+    timestamp: string;
+  }>;
 }
 
 export interface StudentProfileData {

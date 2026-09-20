@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useVision } from '../context/VisionContext';
+import { AskTutorWidget } from './AskTutorWidget';
 
 export const InitialTeaching: React.FC = () => {
   const {
@@ -454,6 +455,9 @@ export const InitialTeaching: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Ask Tutor Q&A Subsystem */}
+      <AskTutorWidget />
 
       {/* ========================================================================= */}
       {/* PRIMARY CTA: I'm Ready — Start Practice */}

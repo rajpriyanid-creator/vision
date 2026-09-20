@@ -64,6 +64,7 @@ interface VisionContextType {
     notes?: string;
     selected_option?: string;
   }) => Promise<boolean>;
+  askTutor: (question: string) => Promise<{ answer: string; key_takeaway?: string } | null>;
   resetCurrentSession: () => void;
   resetSession: () => void;
   studentProfile: StudentProfile | null;
@@ -420,6 +421,25 @@ export const VisionProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => clearInterval(interval);
   }, []);
 
+  const askTutor = async (question: string) => {
+    if (!runId) return null;
+    try {
+      setLoading(true);
+      setLoadingMessage('Consulting Tutor Agent...');
+      const res = await api.askTutor(runId, question);
+      if (res.session) {
+        setSession(res.session);
+      }
+      return { answer: res.answer, key_takeaway: res.key_takeaway };
+    } catch (err: any) {
+      setError(err.message || 'Failed to get answer from Tutor Agent.');
+      return null;
+    } finally {
+      setLoading(false);
+      setLoadingMessage('');
+    }
+  };
+
   const currentState = session?.current_state || null;
   const exercise = session?.exercise || null;
   const teachingAction = session?.teaching_action || null;
@@ -464,6 +484,7 @@ export const VisionProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         beginPractice,
         submitStep,
         resumeHuman,
+        askTutor,
         resetCurrentSession,
         resetSession: resetCurrentSession,
         studentProfile,

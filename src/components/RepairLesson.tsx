@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useVision } from '../context/VisionContext';
+import { AskTutorWidget } from './AskTutorWidget';
 
 export const RepairLesson: React.FC = () => {
   const {
@@ -296,6 +297,9 @@ export const RepairLesson: React.FC = () => {
           </ul>
         </div>
       )}
+
+      {/* Ask Tutor Q&A */}
+      <AskTutorWidget />
 
       {/* Primary Action CTA */}
       <div className="p-5 rounded-xl bg-[#0B111E] border border-rose-500/30 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">

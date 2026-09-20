@@ -243,6 +243,23 @@ export const api = {
     return [];
   },
 
+  async askTutor(run_id: string, question: string): Promise<{ question: string; answer: string; key_takeaway?: string; session?: SessionData }> {
+    try {
+      return await request<{ question: string; answer: string; key_takeaway?: string; session?: SessionData }>('/session/ask-tutor', {
+        method: 'POST',
+        body: JSON.stringify({ run_id, question })
+      });
+    } catch (err: any) {
+      if (err.status === 404 || err.status === 405) {
+        return await request<{ question: string; answer: string; key_takeaway?: string; session?: SessionData }>(`/session/${encodeURIComponent(run_id)}/ask-tutor`, {
+          method: 'POST',
+          body: JSON.stringify({ question })
+        });
+      }
+      throw err;
+    }
+  },
+
   async getStudentProfile(student_id: string): Promise<StudentProfile> {
     return request<StudentProfile>(`/student/${encodeURIComponent(student_id)}/profile`);
   },

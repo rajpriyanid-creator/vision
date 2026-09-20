@@ -268,6 +268,12 @@ export interface SessionData {
   current_part_index?: number;
   learning_parts?: LearningPart[];
   part_transition_data?: any;
+  tutor_qna_history?: Array<{
+    question: string;
+    answer: string;
+    key_takeaway?: string;
+    timestamp: string;
+  }>;
   [key: string]: any;
 }
 

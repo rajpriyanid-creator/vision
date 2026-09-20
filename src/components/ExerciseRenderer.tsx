@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useVision } from '../context/VisionContext';
+import { AskTutorWidget } from './AskTutorWidget';
 
 interface ExerciseRendererProps {
   titlePrefix?: string;
@@ -348,6 +349,9 @@ export const ExerciseRenderer: React.FC<ExerciseRendererProps> = ({
           </button>
         </div>
       </form>
+
+      {/* Ask Tutor Q&A */}
+      <AskTutorWidget />
     </div>
   );
 };

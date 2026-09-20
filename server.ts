@@ -13,6 +13,7 @@ import {
 } from './server/engine';
 import { PartPlanner } from './server/curriculum/partPlanner';
 import { checkGeminiHealth, getGeminiStatus } from './server/gemini';
+import { tutorAgent } from './server/agents/tutorAgent';
 
 const app = express();
 const PORT = 3000;
@@ -107,7 +108,8 @@ function publicSession(session: StoredSession) {
     n_parts: session.n_parts || session.learning_parts?.length || 1,
     current_part_index: session.current_part_index ?? 0,
     learning_parts: session.learning_parts || [],
-    part_transition_data: session.part_transition_data
+    part_transition_data: session.part_transition_data,
+    tutor_qna_history: session.tutor_qna_history || []
   };
 }
 
@@ -630,34 +632,144 @@ app.post('/api/session/:run_id/step', handleStep);
 const handleResume = async (req: express.Request, res: express.Response) => {
   try {
     const run_id = req.params.run_id || req.body?.run_id;
-    const { decision = 'continue' } = req.body || {};
+    const { decision = 'continue', selected_option, action } = req.body || {};
     const session = db.getSession(run_id);
     if (!session) {
       return res.status(404).json({ detail: `Session ${run_id} not found` });
     }
 
-    session.current_state = 'PRACTICE';
+    const optStr = String(selected_option || decision || action).toLowerCase();
+
+    // Reset revision count budget when human instructor resumes session
+    session.revision_count = 0;
     session.human_question = null;
     const now = new Date().toISOString();
+
+    if (optStr.includes('override') || optStr.includes('target')) {
+      session.active_concept = session.target_id;
+      session.candidate_prerequisite = undefined;
+      session.current_state = 'PRACTICE';
+    } else if (optStr.includes('reset') || optStr.includes('restart')) {
+      session.active_concept = session.target_id;
+      session.candidate_prerequisite = undefined;
+      session.current_part_index = 0;
+      session.current_state = 'INITIAL_TEACHING';
+
+      const firstPart = session.learning_parts ? session.learning_parts[0] : undefined;
+      session.teaching_action = await generateInitialTeaching(
+        session.subject,
+        session.target_concept,
+        session.learner_level,
+        session.learning_goal,
+        session.student_id,
+        session.course_id,
+        firstPart
+      );
+    } else {
+      session.current_state = 'PRACTICE';
+    }
+
+    if (session.current_state === 'PRACTICE') {
+      const activeConcept = session.active_concept || session.target_id;
+      const conceptTitle = session.concept_titles[activeConcept] || session.target_concept;
+      const activePart = session.learning_parts && session.current_part_index != null
+        ? session.learning_parts[session.current_part_index]
+        : undefined;
+
+      const genResult = await generateExercise(
+        activeConcept,
+        conceptTitle,
+        session.subject,
+        activeConcept !== session.target_id,
+        session.learner_level,
+        session.learning_goal,
+        activePart
+      );
+      session.active_exercise = genResult.exercise || genResult;
+      session.active_answer_key = genResult.answer_key;
+    }
 
     db.addEvent(run_id, {
       timestamp: now,
       source_agent: 'SupervisorAgent',
       target_agent: 'Controller',
       action: 'human_resume',
-      reason: `Human instructor provided decision: '${decision}'. Resuming study flow.`,
-      state: 'PRACTICE'
+      reason: `Human instructor decision: '${selected_option || decision}'. Reset revision budget and resumed in state '${session.current_state}'.`,
+      state: session.current_state
     });
 
     db.saveSession(session);
     res.json(publicSession(session));
   } catch (err: any) {
+    console.error('Error in human-resume:', err);
     res.status(500).json({ detail: err.message || 'Failed to resume session' });
   }
 };
 
 app.post('/api/session/human-resume', handleResume);
 app.post('/api/session/:run_id/human-resume', handleResume);
+
+// 10b. Ask Tutor Endpoint
+const handleAskTutor = async (req: express.Request, res: express.Response) => {
+  try {
+    const run_id = req.params.run_id || req.body?.run_id;
+    const { question } = req.body || {};
+
+    if (!question || typeof question !== 'string' || !question.trim()) {
+      return res.status(400).json({ detail: 'Question parameter is required.' });
+    }
+
+    const session = db.getSession(run_id);
+    if (!session) {
+      return res.status(404).json({ detail: `Session ${run_id} not found` });
+    }
+
+    const activeConcept = session.active_concept || session.target_id;
+    const conceptTitle = session.concept_titles[activeConcept] || session.target_concept;
+
+    const qnaResult = await tutorAgent.answerQuestion({
+      question: question.trim(),
+      concept_title: conceptTitle,
+      subject: session.subject,
+      learner_level: session.learner_level,
+      learning_goal: session.learning_goal
+    });
+
+    const now = new Date().toISOString();
+    if (!session.tutor_qna_history) {
+      session.tutor_qna_history = [];
+    }
+    session.tutor_qna_history.push({
+      question: question.trim(),
+      answer: qnaResult.answer,
+      key_takeaway: qnaResult.key_takeaway,
+      timestamp: now
+    });
+
+    db.addEvent(run_id, {
+      timestamp: now,
+      source_agent: 'TutorAgent',
+      target_agent: 'Learner',
+      action: 'answer_student_question',
+      reason: `Tutor Agent answered student question regarding '${conceptTitle}'.`,
+      state: session.current_state
+    });
+
+    db.saveSession(session);
+    res.json({
+      question: question.trim(),
+      answer: qnaResult.answer,
+      key_takeaway: qnaResult.key_takeaway,
+      session: publicSession(session)
+    });
+  } catch (err: any) {
+    console.error('Error asking tutor:', err);
+    res.status(500).json({ detail: err.message || 'Failed to get tutor response' });
+  }
+};
+
+app.post('/api/session/ask-tutor', handleAskTutor);
+app.post('/api/session/:run_id/ask-tutor', handleAskTutor);
 
 // 11. Why Explanation
 app.get('/api/session/:run_id/why', (req, res) => {

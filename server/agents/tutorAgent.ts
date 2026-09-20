@@ -18,6 +18,7 @@
 import { TeachingAction, GroundedEvidence, LearnerMemory } from '../models/contracts';
 import { LessonSynthesizer } from '../tutor/lessonSynthesizer';
 import { TutorContext } from '../tutor/schemas';
+import { generateWithGemini } from '../gemini';
 
 export interface TutorInput {
   teaching_context: 'INITIAL_TEACHING' | 'PREREQUISITE_REPAIR';
@@ -60,6 +61,53 @@ export class TutorAgent {
     };
 
     return await LessonSynthesizer.synthesize(context);
+  }
+
+  /**
+   * Directly answers a student question about the concept being taught or practiced.
+   */
+  async answerQuestion(input: {
+    question: string;
+    concept_title: string;
+    subject: string;
+    learner_level?: string;
+    learning_goal?: string;
+  }): Promise<{ answer: string; key_takeaway: string }> {
+    const prompt = `You are the VISION DYNAMIC TUTOR AGENT.
+Subject: "${input.subject}"
+Concept: "${input.concept_title}"
+Learner Level: "${input.learner_level || 'intermediate'}"
+
+The student asked this specific question:
+"${input.question}"
+
+Provide a clear, encouraging, pedagogically grounded response in 2-3 concise paragraphs with code or examples if relevant.
+Output strictly valid JSON with no markdown formatting:
+{
+  "answer": "Clear explanation answering the student's question...",
+  "key_takeaway": "Single-sentence core intuition to remember."
+}`;
+
+    const aiText = await generateWithGemini(prompt);
+    if (aiText) {
+      try {
+        const cleaned = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(cleaned);
+        if (parsed.answer) {
+          return {
+            answer: parsed.answer,
+            key_takeaway: parsed.key_takeaway || 'Focus on fundamental invariant principles.'
+          };
+        }
+      } catch {
+        // Fallback below
+      }
+    }
+
+    return {
+      answer: `To address your question about ${input.concept_title}: Great question! In ${input.subject}, ${input.concept_title} relies on strictly maintaining structural invariants. Make sure to trace each state transition step-by-step.`,
+      key_takeaway: `Always trace operations step-by-step on ${input.concept_title}.`
+    };
   }
 }
 
