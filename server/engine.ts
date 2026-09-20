@@ -117,6 +117,26 @@ Output strictly valid JSON with no markdown formatting:
     };
   }
 
+  if (normTarget.includes('graph')) {
+    return {
+      targetId: 'graph_data_structure',
+      conceptTitles: {
+        graph_data_structure: targetConcept || 'Graph Data Structure',
+        vertices_edges_invariants: 'Vertices, Edges & Structural Invariants',
+        adjacency_list_representation: 'Adjacency List & Matrix Memory Representation',
+        breadth_first_search: 'Breadth-First Search (BFS)',
+        depth_first_search: 'Depth-First Search (DFS)'
+      },
+      dag: {
+        graph_data_structure: ['vertices_edges_invariants', 'adjacency_list_representation'],
+        vertices_edges_invariants: [],
+        adjacency_list_representation: ['breadth_first_search'],
+        breadth_first_search: ['depth_first_search'],
+        depth_first_search: []
+      }
+    };
+  }
+
   // Generic heuristic fallback DAG
   const targetId = toId(targetConcept);
   const p1Id = `${targetId}_foundations`;
@@ -155,10 +175,14 @@ export async function generateInitialTeaching(
     query_context: `${subject} ${targetConcept} ${learningPart?.title || ''} ${learningPart?.objective || ''}`
   });
 
+  const fullConceptTitle = learningPart
+    ? `${targetConcept} — ${learningPart.title}`
+    : targetConcept;
+
   const teaching = await tutorAgent.teach({
     teaching_context: learningPart ? (`PART_${learningPart.part_number}_TEACHING` as any) : 'INITIAL_TEACHING',
     concept_id: learningPart ? learningPart.id : toId(targetConcept),
-    concept_title: learningPart ? `${learningPart.title}` : targetConcept,
+    concept_title: fullConceptTitle,
     target_concept: targetConcept,
     active_concept: learningPart ? learningPart.id : toId(targetConcept),
     subject,

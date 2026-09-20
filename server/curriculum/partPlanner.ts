@@ -314,6 +314,70 @@ Return strictly valid JSON:
       };
     }
 
+    if (norm.includes('graph')) {
+      const allParts: LearningPart[] = [
+        {
+          part_number: 1,
+          id: 'part_1_graph_foundations',
+          title: 'Graph Foundations & Representation Invariants',
+          subtitle: 'Vertices (V), Edges (E), Adjacency List & Matrix representations',
+          objective: 'Master graph structural definitions, directed vs undirected edges, and O(V + E) memory representations.',
+          key_focus_areas: ['Vertices and Edges definitions', 'Adjacency List vs Adjacency Matrix', 'Directed & Weighted graph properties'],
+          cognitive_demand: 'Knowledge & Intuition',
+          status: 'in_progress',
+          evaluations_count: 0
+        },
+        {
+          part_number: 2,
+          id: 'part_2_graph_traversals',
+          title: 'Graph Traversal Mechanics: BFS & DFS',
+          subtitle: 'Queue-based level-order search vs Recursive call-stack depth exploration',
+          objective: 'Trace step-by-step Breadth-First Search (BFS) and Depth-First Search (DFS) with visited state tracking.',
+          key_focus_areas: ['Breadth-First Search (BFS) queue', 'Depth-First Search (DFS) stack', 'Visited set tracking to avoid infinite loops'],
+          cognitive_demand: 'Application & Procedural',
+          status: 'upcoming',
+          evaluations_count: 0
+        },
+        {
+          part_number: 3,
+          id: 'part_3_graph_cycles_topological',
+          title: 'Cycle Detection & Topological Sorting',
+          subtitle: 'DAG ordering, Kahn algorithm indegrees, and state coloring',
+          objective: 'Detect cycles in directed/undirected graphs and construct topological sort orderings for dependencies.',
+          key_focus_areas: ['Cycle detection in graphs', 'Topological sort (Kahn’s algorithm)', 'Indegree & dependency ordering'],
+          cognitive_demand: 'Analysis & Edge Cases',
+          status: 'upcoming',
+          evaluations_count: 0
+        },
+        {
+          part_number: 4,
+          id: 'part_4_graph_shortest_paths',
+          title: 'Shortest Paths & Algorithmic Synthesis',
+          subtitle: 'Dijkstra greedy search, priority queue, and path reconstruction',
+          objective: 'Implement shortest path algorithms using priority queues to evaluate distance bounds across complex networks.',
+          key_focus_areas: ['Dijkstra’s algorithm', 'Min-priority queue relaxation', 'Single-source shortest path'],
+          cognitive_demand: 'Synthesis & Evaluation',
+          status: 'upcoming',
+          evaluations_count: 0
+        }
+      ];
+
+      const parts = allParts.slice(0, nParts);
+      parts.forEach((p, i) => {
+        p.part_number = i + 1;
+        p.status = i === 0 ? 'in_progress' : 'upcoming';
+      });
+
+      return {
+        target_concept: targetConcept,
+        subject,
+        vision_statement: `Achieve complete operational mastery of Graph Data Structures—from Adjacency List representations and BFS/DFS traversals to Topological Sorting and Dijkstra's Shortest Path algorithms.`,
+        n_parts: parts.length,
+        estimated_duration_mins: parts.length * 5,
+        parts
+      };
+    }
+
     // Generic N-part template
     const titles = [
       { title: 'Foundations & Conceptual Mental Model', subtitle: `Core definitions and primary invariants of ${targetConcept}`, demand: 'Knowledge & Intuition' },

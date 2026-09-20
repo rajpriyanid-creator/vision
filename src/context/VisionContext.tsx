@@ -11,7 +11,7 @@ import {
   StudentProfile,
   StudentSessionSummary
 } from '../types/vision';
-import { api, getApiBaseUrl, setApiBaseUrl } from '../api/client';
+import { api, getApiBaseUrl, setApiBaseUrl, SystemDiagnostics } from '../api/client';
 
 interface VisionContextType {
   runId: string | null;
@@ -36,6 +36,9 @@ interface VisionContextType {
   apiBaseUrl: string;
   updateApiBaseUrl: (url: string) => void;
   checkBackendHealth: () => Promise<boolean>;
+  systemHealth: SystemDiagnostics | null;
+  checkSystemDiagnostics: () => Promise<SystemDiagnostics | null>;
+  isCheckingDiagnostics: boolean;
   loadSession: (run_id: string) => Promise<boolean>;
   refreshSession: () => Promise<void>;
   refreshEvents: (customRunId?: string) => Promise<void>;
@@ -103,6 +106,9 @@ export const VisionProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [backendLatency, setBackendLatency] = useState<number | null>(null);
   const [apiBaseUrl, setApiBaseUrlState] = useState<string>(getApiBaseUrl);
 
+  const [systemHealth, setSystemHealth] = useState<SystemDiagnostics | null>(null);
+  const [isCheckingDiagnostics, setIsCheckingDiagnostics] = useState<boolean>(false);
+
   const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null);
   const [studentSessions, setStudentSessions] = useState<StudentSessionSummary[]>([]);
 
@@ -125,10 +131,27 @@ export const VisionProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const checkBackendHealth = useCallback(async (): Promise<boolean> => {
     const startTime = Date.now();
     try {
-      await api.getHealth();
+      const res = await api.getHealth();
       setBackendConnected(true);
       setBackendLatency(Date.now() - startTime);
-      // Auto-clear stale connection errors once live backend is verified
+
+      if (res.diagnostics) {
+        setSystemHealth(res.diagnostics);
+      } else {
+        // Fallback diagnostic if backend returns legacy structure
+        const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+        setSystemHealth({
+          healthy: res.status === 'ok' && (res.has_api_key ?? true),
+          internetConnected: isOnline,
+          apiKeysConfigured: res.has_api_key ?? true,
+          keyStatus: res.has_api_key ? 'valid' : 'missing',
+          activeProvider: 'Gemini',
+          missingEnvVars: res.has_api_key ? [] : ['GEMINI_API_KEY'],
+          errors: res.has_api_key ? [] : ['Missing API key in .env'],
+          warnings: []
+        });
+      }
+
       setError((prev) => {
         if (prev && (prev.includes('Failed to connect') || prev.includes('localhost:8000') || prev.includes('check backend connection'))) {
           return null;
@@ -139,9 +162,34 @@ export const VisionProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } catch {
       setBackendConnected(false);
       setBackendLatency(null);
+      setSystemHealth({
+        healthy: false,
+        internetConnected: typeof navigator !== 'undefined' ? navigator.onLine : false,
+        apiKeysConfigured: false,
+        keyStatus: 'unknown',
+        activeProvider: 'None',
+        missingEnvVars: ['GEMINI_API_KEY'],
+        errors: ['Cannot connect to backend server. Ensure backend is running.'],
+        warnings: []
+      });
       return false;
     }
   }, []);
+
+  const checkSystemDiagnostics = useCallback(async (): Promise<SystemDiagnostics | null> => {
+    setIsCheckingDiagnostics(true);
+    try {
+      const diag = await api.getDiagnostics();
+      setSystemHealth(diag);
+      await checkBackendHealth();
+      return diag;
+    } catch {
+      await checkBackendHealth();
+      return null;
+    } finally {
+      setIsCheckingDiagnostics(false);
+    }
+  }, [checkBackendHealth]);
 
   // Update session state and helper fields
   const applySessionData = useCallback((data: SessionData) => {
@@ -216,6 +264,20 @@ export const VisionProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     n_parts?: number;
     user_notes?: string;
   }): Promise<string | null> => {
+    // Perform guard check: Don't proceed blindly if internet is down or API key is missing
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    if (!isOnline || (systemHealth && !systemHealth.internetConnected)) {
+      const msg = 'Cannot start session: Internet connection is offline. Please check your network and try again.';
+      setError(msg);
+      return null;
+    }
+
+    if (systemHealth && !systemHealth.apiKeysConfigured) {
+      const msg = 'Cannot start session: Missing API key in .env. Please configure GEMINI_API_KEY or OPENROUTER_API_KEY in .env to proceed.';
+      setError(msg);
+      return null;
+    }
+
     setLoading(true);
     setLoadingMessage('Initializing adaptive session with VISION backend...');
     setError(null);
@@ -392,7 +454,7 @@ export const VisionProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [studentId]);
 
-  // Initial check on load
+  // Initial check on load & window online/offline listeners
   useEffect(() => {
     // Purge any stale localhost:8000 URL in browser storage
     if (typeof window !== 'undefined') {
@@ -413,12 +475,49 @@ export const VisionProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       loadSession(runId);
     }
 
+    const handleOnline = () => {
+      checkBackendHealth();
+    };
+
+    const handleOffline = () => {
+      setSystemHealth((prev) =>
+        prev
+          ? {
+              ...prev,
+              healthy: false,
+              internetConnected: false,
+              errors: [...prev.errors.filter((e) => !e.includes('Internet Connection')), 'No Internet Connection: Browser triggered offline state.']
+            }
+          : {
+              healthy: false,
+              internetConnected: false,
+              apiKeysConfigured: false,
+              keyStatus: 'unknown',
+              activeProvider: 'None',
+              missingEnvVars: [],
+              errors: ['No Internet Connection: Browser triggered offline state.'],
+              warnings: []
+            }
+      );
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+    }
+
     // Periodically verify connection
     const interval = setInterval(() => {
       checkBackendHealth();
     }, 5000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      }
+    };
   }, []);
 
   const askTutor = async (question: string) => {
@@ -474,6 +573,9 @@ export const VisionProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         apiBaseUrl,
         updateApiBaseUrl,
         checkBackendHealth,
+        systemHealth,
+        checkSystemDiagnostics,
+        isCheckingDiagnostics,
         loadSession,
         refreshSession,
         refreshEvents,

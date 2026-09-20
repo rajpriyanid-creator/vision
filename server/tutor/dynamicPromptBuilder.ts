@@ -107,7 +107,7 @@ Output strictly valid JSON with no markdown backticks or commentary outside JSON
       "explanation": "Why this edge case protection matters."
     }
   ],
-  "pseudocode_python": "# Complete, clean, well-commented Python implementation demonstrating ${concept_title}\\nclass Node:\\n    def __init__(self, data):\\n        self.data = data\\n        self.next = None\\n\\nclass LinkedList:\\n    # methods with clear comments and demonstration\\n",
+  "pseudocode_python": "# Complete, clean, well-commented Python implementation demonstrating ${concept_title}\\n# Include class/function definitions, core operations, and runnable demonstration at bottom\\n",
   "pseudocode_language": "python",
   "key_takeaways": [
     "Key takeaway point 1",

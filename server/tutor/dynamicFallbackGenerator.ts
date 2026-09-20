@@ -381,6 +381,113 @@ if __name__ == "__main__":
       ];
 
       selfExplanation = 'Why is collections.deque preferred over a standard Python list for implementing a Queue in production?';
+    } else if (normTitle.includes('graph') || normId.includes('graph')) {
+      definition = `A **Graph** is a non-linear data structure defined as a tuple $G = (V, E)$, consisting of a finite set of **Vertices** (Nodes, $V$) and a set of **Edges** ($E$) connecting pairs of vertices.\n\nGraphs represent complex networked relationships:\n• **Directed vs Undirected**: Directed graphs enforce one-way edges ($u \\to v$); Undirected graphs permit bidirectional traversal ($u \\leftrightarrow v$).\n• **Weighted vs Unweighted**: Weighted graph edges store costs, distances, or capacities.\n\nPrimary Memory Representations:\n1. **Adjacency List**: Maps each vertex $v$ to a list of neighboring vertices. Space complexity is optimal at $O(V + E)$, making it the standard choice for sparse graphs.\n2. **Adjacency Matrix**: A $V \\times V$ boolean 2D array where entry \`matrix[i][j]\` records edge presence. Provides $O(1)$ edge existence queries at the cost of $O(V^2)$ memory.`;
+
+      examples = [
+        {
+          title: 'Example 1: Constructing an Adjacency List Graph',
+          scenario: 'Initialize an undirected graph with 4 vertices (0, 1, 2, 3) and edges (0-1), (0-2), (1-3).',
+          steps: [
+            { step_number: 1, action: 'Initialize empty adjacency lists for vertices 0, 1, 2, 3.', reason: 'Allocates neighbor sets for each node.', state_transition: 'adj = {0: [], 1: [], 2: [], 3: []}' },
+            { step_number: 2, action: 'Add edge (0, 1): append 1 to adj[0] and 0 to adj[1].', reason: 'Undirected edges modify both endpoint neighbor lists.', state_transition: 'adj[0] = [1], adj[1] = [0]' },
+            { step_number: 3, action: 'Add edges (0, 2) and (1, 3).', reason: 'Populates remaining graph connectivity.', state_transition: 'adj = {0: [1, 2], 1: [0, 3], 2: [0], 3: [1]}' }
+          ],
+          result: 'Graph initialized: 0 -> [1, 2], 1 -> [0, 3], 2 -> [0], 3 -> [1].',
+          visual_or_output: '0 ─── 1 ─── 3\n│\n└─── 2',
+          explanation: 'Adjacency lists allow iterating over neighbors of node 0 in O(degree(0)) time.'
+        },
+        {
+          title: 'Example 2: Breadth-First Search (BFS) Traversal',
+          scenario: 'Traverse the graph starting from vertex 0 using BFS.',
+          steps: [
+            { step_number: 1, action: 'Enqueue start node 0 and add 0 to visited set.', reason: 'Prevents revisiting nodes and cycle loops.', state_transition: 'queue: [0], visited: {0}' },
+            { step_number: 2, action: 'Dequeue 0: process neighbors 1 and 2. Enqueue 1 and 2.', reason: 'Explores all distance-1 neighbors first.', state_transition: 'visited: {0, 1, 2}, queue: [1, 2]' },
+            { step_number: 3, action: 'Dequeue 1: process unvisited neighbor 3. Enqueue 3.', reason: 'Explores distance-2 level.', state_transition: 'visited: {0, 1, 2, 3}, queue: [2, 3]' }
+          ],
+          result: 'BFS Order: 0 -> 1 -> 2 -> 3.',
+          visual_or_output: 'Level 0: [0] -> Level 1: [1, 2] -> Level 2: [3]',
+          explanation: 'BFS guarantees finding the shortest path in unweighted graphs.'
+        },
+        {
+          title: 'Example 3: Depth-First Search (DFS) Traversal',
+          scenario: 'Traverse the graph starting from vertex 0 using recursive DFS.',
+          steps: [
+            { step_number: 1, action: 'Visit 0, mark visited, recurse on first unvisited neighbor (1).', reason: 'Dives deep along branch before backtracking.', state_transition: 'DFS stack: [0 -> 1], visited: {0, 1}' },
+            { step_number: 2, action: 'Visit 1, mark visited, recurse on neighbor 3.', reason: 'Continues along current path.', state_transition: 'DFS stack: [0 -> 1 -> 3], visited: {0, 1, 3}' },
+            { step_number: 3, action: 'Backtrack from 3 to 1 to 0, then visit remaining neighbor 2.', reason: 'Unwinds call stack when dead-end is reached.', state_transition: 'DFS stack: [0 -> 2], visited: {0, 1, 3, 2}' }
+          ],
+          result: 'DFS Order: 0 -> 1 -> 3 -> 2.',
+          visual_or_output: 'Branch 0 -> 1 -> 3 (Dead-end) -> Backtrack -> 2',
+          explanation: 'DFS uses the call stack to explore paths to their furthest depth before backtracking.'
+        }
+      ];
+
+      pythonCode = `from collections import deque, defaultdict
+
+class Graph:
+    """Graph implementation using an Adjacency List."""
+    def __init__(self, is_directed=False):
+        self.adj = defaultdict(list)
+        self.is_directed = is_directed
+
+    def add_edge(self, u, v):
+        """Adds an edge between vertex u and vertex v."""
+        self.adj[u].append(v)
+        if not self.is_directed:
+            self.adj[v].append(u)
+
+    def bfs(self, start_node):
+        """Breadth-First Search (BFS) level-order traversal."""
+        visited = set([start_node])
+        queue = deque([start_node])
+        traversal_order = []
+
+        while queue:
+            node = queue.popleft()
+            traversal_order.append(node)
+            for neighbor in self.adj[node]:
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+        return traversal_order
+
+    def dfs(self, start_node):
+        """Depth-First Search (DFS) recursive traversal."""
+        visited = set()
+        traversal_order = []
+
+        def _dfs_helper(v):
+            visited.add(v)
+            traversal_order.append(v)
+            for neighbor in self.adj[v]:
+                if neighbor not in visited:
+                    _dfs_helper(neighbor)
+
+        _dfs_helper(start_node)
+        return traversal_order
+
+
+# --- Demonstration ---
+if __name__ == "__main__":
+    g = Graph(is_directed=False)
+    g.add_edge(0, 1)
+    g.add_edge(0, 2)
+    g.add_edge(1, 3)
+    g.add_edge(2, 4)
+
+    print(f"BFS Traversal starting from 0: {g.bfs(0)}")  # Output: [0, 1, 2, 3, 4]
+    print(f"DFS Traversal starting from 0: {g.dfs(0)}")  # Output: [0, 1, 3, 2, 4]`;
+
+      keyTakeaways = [
+        'Graph Tuple G = (V, E): Defines non-linear entities (Vertices) and connections (Edges).',
+        'Adjacency List O(V + E): Preferred for space efficiency in real-world sparse graphs.',
+        'BFS (Queue): Explores level-by-level; computes unweighted shortest paths.',
+        'DFS (Stack/Recursion): Explores deeply down branches; useful for topological sorting and cycle detection.',
+        'Visited Set: Crucial to track seen vertices and prevent infinite loops in cyclic graphs.'
+      ];
+
+      selfExplanation = 'Why is a Visited set mandatory when traversing a Graph, but optional when traversing a Tree?';
     } else {
       // Dynamic General Synthesis for any domain/concept
       definition = `**${concept_title}** is a core concept in **${subject}**.\n\nAt its foundation, ${concept_title} establishes the structural rules, governing equations, and operational boundaries necessary to evaluate, transform, and manipulate state predictably. Understanding how ${concept_title} behaves under standard conditions and boundary edge cases enables robust problem-solving and systematic algorithmic reasoning.`;

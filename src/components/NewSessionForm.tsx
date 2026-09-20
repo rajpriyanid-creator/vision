@@ -11,7 +11,8 @@ export const NewSessionForm: React.FC = () => {
     loading,
     error,
     clearError,
-    backendConnected
+    backendConnected,
+    systemHealth
   } = useVision();
 
   const [courses, setCourses] = useState<Course[]>([]);
@@ -422,16 +423,47 @@ export const NewSessionForm: React.FC = () => {
             />
           </div>
 
+          {/* System Readiness Alert inside Form if blocking errors active */}
+          {systemHealth && (!systemHealth.internetConnected || !systemHealth.apiKeysConfigured || systemHealth.keyStatus === 'quota_exceeded' || systemHealth.keyStatus === 'invalid') && (
+            <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/50 text-xs text-rose-200 flex flex-col gap-1.5">
+              <div className="flex items-center gap-2 font-bold font-mono text-rose-300">
+                <span className="material-symbols-outlined text-sm">block</span>
+                <span>Session Creation Blocked</span>
+              </div>
+              <p className="text-[11px] text-slate-300">
+                {!systemHealth.internetConnected
+                  ? 'Internet connection is offline. Please check your network connection.'
+                  : !systemHealth.apiKeysConfigured
+                  ? 'Missing API Key in .env file. Please add GEMINI_API_KEY=your_key to .env.'
+                  : systemHealth.keyStatus === 'quota_exceeded'
+                  ? 'API key quota exceeded (HTTP 429).'
+                  : 'Invalid API key in .env file.'}
+              </p>
+            </div>
+          )}
+
           {/* Submit CTA */}
           <button
             type="submit"
-            disabled={loading}
-            className="w-full mt-2 py-3.5 px-6 rounded-xl bg-[#00D2FF] hover:bg-cyan-400 text-slate-950 font-mono font-bold text-sm tracking-wide transition-all shadow-[0_0_24px_rgba(0,210,255,0.4)] disabled:opacity-50 flex items-center justify-center gap-2"
+            disabled={
+              loading ||
+              (systemHealth !== null &&
+                (!systemHealth.internetConnected ||
+                  !systemHealth.apiKeysConfigured ||
+                  systemHealth.keyStatus === 'quota_exceeded' ||
+                  systemHealth.keyStatus === 'invalid'))
+            }
+            className="w-full mt-2 py-3.5 px-6 rounded-xl bg-[#00D2FF] hover:bg-cyan-400 text-slate-950 font-mono font-bold text-sm tracking-wide transition-all shadow-[0_0_24px_rgba(0,210,255,0.4)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {loading ? (
               <>
                 <span className="material-symbols-outlined text-lg animate-spin">sync</span>
                 <span>Initializing Multi-Agent Pipeline...</span>
+              </>
+            ) : systemHealth && (!systemHealth.internetConnected || !systemHealth.apiKeysConfigured) ? (
+              <>
+                <span className="material-symbols-outlined text-lg">warning</span>
+                <span>System Error: Fix .env / Internet to Start</span>
               </>
             ) : (
               <>

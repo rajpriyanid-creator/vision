@@ -13,7 +13,11 @@ import {
 } from './server/engine';
 import { PartPlanner } from './server/curriculum/partPlanner';
 import { checkGeminiHealth, getGeminiStatus } from './server/gemini';
+import { runSystemDiagnostics, loadEnvFromFile } from './server/envValidator';
 import { tutorAgent } from './server/agents/tutorAgent';
+
+// Load .env variables into process.env at server start
+loadEnvFromFile();
 
 const app = express();
 const PORT = 3000;
@@ -115,13 +119,16 @@ function publicSession(session: StoredSession) {
 
 // ─── API Routes ─────────────────────────────────────────────────────────────
 
-// 1. Health
+// 1. Health & System Diagnostics
 app.get('/api/health', async (req, res) => {
   const quick = req.query.quick === 'true';
   const modelInfo = quick ? getGeminiStatus() : await checkGeminiHealth();
+  const diagnostics = await runSystemDiagnostics();
+
+  const apiKeyPresent = Boolean((process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY || '').trim());
 
   res.json({
-    status: 'ok',
+    status: diagnostics.healthy ? 'ok' : 'degraded',
     service: 'vision-api',
     storage: 'in-memory',
     llm_provider: 'gemini',
@@ -129,8 +136,14 @@ app.get('/api/health', async (req, res) => {
     llm_live: modelInfo.live,
     llm_status: modelInfo.status,
     llm_error: modelInfo.error || null,
-    has_api_key: Boolean(process.env.GEMINI_API_KEY)
+    has_api_key: apiKeyPresent,
+    diagnostics
   });
+});
+
+app.get('/api/diagnostics', async (req, res) => {
+  const diagnostics = await runSystemDiagnostics();
+  res.json(diagnostics);
 });
 
 // 2. Courses

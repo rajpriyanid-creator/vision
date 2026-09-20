@@ -1,18 +1,23 @@
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { loadEnvFromFile } from './envValidator';
 
 let aiInstance: GoogleGenAI | null = null;
+let currentApiKey = '';
 let lastModelLiveStatus = false;
 let lastModelError: string | null = null;
 let lastModelCheckTime = 0;
 
 export function getGemini(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
+  loadEnvFromFile();
+  const apiKey = (process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY || '').trim();
   if (!apiKey) {
     lastModelLiveStatus = false;
-    lastModelError = 'GEMINI_API_KEY environment variable not set';
+    lastModelError = 'Neither GEMINI_API_KEY nor OPENROUTER_API_KEY set in .env file';
+    aiInstance = null;
+    currentApiKey = '';
     return null;
   }
-  if (!aiInstance) {
+  if (!aiInstance || currentApiKey !== apiKey) {
     try {
       aiInstance = new GoogleGenAI({
         apiKey,
@@ -22,9 +27,12 @@ export function getGemini(): GoogleGenAI | null {
           }
         }
       });
+      currentApiKey = apiKey;
     } catch (e: any) {
       lastModelLiveStatus = false;
       lastModelError = e?.message || 'Failed to initialize GoogleGenAI client';
+      aiInstance = null;
+      currentApiKey = '';
       return null;
     }
   }
@@ -39,19 +47,20 @@ export async function checkGeminiHealth(): Promise<{
   model: string;
   error?: string | null;
 }> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  loadEnvFromFile();
+  const apiKey = (process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY || '').trim();
   if (!apiKey) {
     return {
       live: false,
       status: 'offline',
       model: 'deterministic-fallback',
-      error: 'No GEMINI_API_KEY configured'
+      error: 'Missing API Key in .env (GEMINI_API_KEY or OPENROUTER_API_KEY required)'
     };
   }
 
-  // Cache live check for 30 seconds
+  // Cache live check for 10 seconds
   const now = Date.now();
-  if (now - lastModelCheckTime < 30000 && lastModelLiveStatus) {
+  if (now - lastModelCheckTime < 10000 && lastModelLiveStatus) {
     return {
       live: lastModelLiveStatus,
       status: lastModelLiveStatus ? 'live' : 'degraded',
@@ -72,7 +81,7 @@ export async function checkGeminiHealth(): Promise<{
 
   try {
     const timeoutPromise = new Promise<null>((_, reject) =>
-      setTimeout(() => reject(new Error('Model health check timed out')), 5000)
+      setTimeout(() => reject(new Error('Model health probe timed out (check internet connection)')), 5000)
     );
     const probePromise = ai.models.generateContent({
       model: SUPPORTED_MODELS[0],
@@ -91,9 +100,16 @@ export async function checkGeminiHealth(): Promise<{
   } catch (err: any) {
     lastModelLiveStatus = false;
     const isQuota = err?.status === 429 || (err?.message && (err.message.includes('429') || err.message.includes('Quota') || err.message.includes('RESOURCE_EXHAUSTED')));
-    lastModelError = isQuota
-      ? 'Gemini API free tier rate-limit/quota exceeded (safe fallback active)'
-      : (err?.message || 'Failed to contact model API');
+    const isNetwork = err?.code === 'ENOTFOUND' || err?.message?.includes('fetch failed') || err?.message?.includes('timed out');
+    
+    if (isNetwork) {
+      lastModelError = 'Network Offline: Cannot reach LLM gateway. Please check your internet connection.';
+    } else if (isQuota) {
+      lastModelError = 'Gemini API quota/rate-limit exceeded (HTTP 429)';
+    } else {
+      lastModelError = err?.message || 'Failed to contact model API';
+    }
+    
     lastModelCheckTime = now;
     return {
       live: false,
@@ -110,13 +126,14 @@ export function getGeminiStatus(): {
   model: string;
   error?: string | null;
 } {
-  const hasKey = Boolean(process.env.GEMINI_API_KEY);
+  loadEnvFromFile();
+  const hasKey = Boolean((process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY || '').trim());
   if (!hasKey) {
     return {
       live: false,
       status: 'offline',
       model: 'deterministic-fallback',
-      error: 'No GEMINI_API_KEY provided (running in deterministic offline mode)'
+      error: 'Missing API Key in .env file'
     };
   }
   return {

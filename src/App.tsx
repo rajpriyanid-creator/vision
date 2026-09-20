@@ -14,6 +14,7 @@ import { AgentTimeline } from './components/AgentTimeline';
 import { BackendConfigModal } from './components/BackendConfigModal';
 import { StudentProfileDrawer } from './components/StudentProfileDrawer';
 import { AgentStatusBar } from './components/AgentStatusBar';
+import { SystemHealthBanner } from './components/SystemHealthBanner';
 
 export const App: React.FC = () => {
   const {
@@ -88,6 +89,9 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#090D16] text-[#DFE8F2] selection:bg-[#00D2FF]/20 selection:text-[#00D2FF]">
+      {/* Persistent System Health Diagnostic Alert Banner */}
+      <SystemHealthBanner />
+
       {/* Top Agent Status Bar for Continuous Live Telemetry in Every Page */}
       <AgentStatusBar />
 

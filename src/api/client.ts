@@ -105,9 +105,32 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 }
 
+export interface SystemDiagnostics {
+  healthy: boolean;
+  internetConnected: boolean;
+  apiKeysConfigured: boolean;
+  keyStatus: 'valid' | 'missing' | 'quota_exceeded' | 'invalid' | 'unknown';
+  activeProvider: string;
+  missingEnvVars: string[];
+  errors: string[];
+  warnings: string[];
+  timestamp?: string;
+}
+
 export const api = {
-  async getHealth(): Promise<{ status: string; version?: string; uptime?: number; timestamp?: string; [key: string]: any }> {
-    return request<{ status: string; [key: string]: any }>('/health');
+  async getHealth(): Promise<{
+    status: string;
+    has_api_key?: boolean;
+    llm_live?: boolean;
+    llm_error?: string | null;
+    diagnostics?: SystemDiagnostics;
+    [key: string]: any;
+  }> {
+    return request<any>('/health');
+  },
+
+  async getDiagnostics(): Promise<SystemDiagnostics> {
+    return request<SystemDiagnostics>('/diagnostics');
   },
 
   async getCourses(): Promise<Course[]> {
