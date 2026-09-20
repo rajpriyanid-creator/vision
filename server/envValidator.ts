@@ -91,8 +91,12 @@ export async function runSystemDiagnostics(): Promise<SystemDiagnostics> {
   // Synchronize process.env from disk .env file dynamically
   loadEnvFromFile();
 
-  const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
-  const openrouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
+  let geminiKey = (process.env.GEMINI_API_KEY || '').trim();
+  let openrouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
+
+  if (geminiKey.startsWith('your-')) geminiKey = '';
+  if (openrouterKey.startsWith('your-')) openrouterKey = '';
+
   const mongoUri = (process.env.MONGO_URI || process.env.MONGODB_URI || '').trim();
 
   const missingEnvVars: string[] = [];
@@ -102,9 +106,9 @@ export async function runSystemDiagnostics(): Promise<SystemDiagnostics> {
   const apiKeysConfigured = Boolean(geminiKey || openrouterKey);
   const activeProvider = geminiKey ? 'Gemini API' : openrouterKey ? 'OpenRouter API' : 'None';
 
-  if (!geminiKey && !openrouterKey) {
+  if (!apiKeysConfigured) {
     missingEnvVars.push('GEMINI_API_KEY or OPENROUTER_API_KEY');
-    errors.push('Missing API Key: Neither GEMINI_API_KEY nor OPENROUTER_API_KEY is defined in .env');
+    errors.push('Missing API Key: Neither GEMINI_API_KEY nor OPENROUTER_API_KEY is defined in .env (or key is set to a placeholder)');
   }
 
   if (!mongoUri) {

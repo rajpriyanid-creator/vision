@@ -9,25 +9,25 @@ let lastModelCheckTime = 0;
 
 export function getGemini(): GoogleGenAI | null {
   loadEnvFromFile();
-  const apiKey = (process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY || '').trim();
-  if (!apiKey) {
+  const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
+  if (!geminiKey || geminiKey.startsWith('your-')) {
     lastModelLiveStatus = false;
-    lastModelError = 'Neither GEMINI_API_KEY nor OPENROUTER_API_KEY set in .env file';
+    lastModelError = 'No valid GEMINI_API_KEY set in .env file';
     aiInstance = null;
     currentApiKey = '';
     return null;
   }
-  if (!aiInstance || currentApiKey !== apiKey) {
+  if (!aiInstance || currentApiKey !== geminiKey) {
     try {
       aiInstance = new GoogleGenAI({
-        apiKey,
+        apiKey: geminiKey,
         httpOptions: {
           headers: {
             'User-Agent': 'aistudio-build'
           }
         }
       });
-      currentApiKey = apiKey;
+      currentApiKey = geminiKey;
     } catch (e: any) {
       lastModelLiveStatus = false;
       lastModelError = e?.message || 'Failed to initialize GoogleGenAI client';
@@ -41,6 +41,61 @@ export function getGemini(): GoogleGenAI | null {
 
 const SUPPORTED_MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
 
+/**
+ * OpenRouter API integration for hackathon keys starting with sk-or-v1-
+ */
+export async function generateWithOpenRouter(
+  prompt: string,
+  systemInstruction?: string
+): Promise<string | null> {
+  loadEnvFromFile();
+  const openrouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
+  if (!openrouterKey || openrouterKey.startsWith('your-')) return null;
+
+  const models = ['google/gemini-2.0-flash-001', 'google/gemini-2.5-flash', 'meta-llama/llama-3.3-70b-instruct'];
+
+  for (const model of models) {
+    try {
+      const messages: Array<{ role: string; content: string }> = [];
+      if (systemInstruction) {
+        messages.push({ role: 'system', content: systemInstruction });
+      }
+      messages.push({ role: 'user', content: prompt });
+
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openrouterKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'http://localhost:3000',
+          'X-Title': 'VISION Adaptive Engine'
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.2
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.choices?.[0]?.message?.content;
+        if (text && typeof text === 'string') {
+          lastModelLiveStatus = true;
+          lastModelError = null;
+          return text.trim();
+        }
+      } else {
+        const errText = await res.text();
+        console.warn(`[OpenRouter API] Call with model ${model} failed (HTTP ${res.status}):`, errText);
+      }
+    } catch (err: any) {
+      console.warn(`[OpenRouter API] Exception with ${model}:`, err?.message || err);
+    }
+  }
+  return null;
+}
+
 export async function checkGeminiHealth(): Promise<{
   live: boolean;
   status: 'live' | 'degraded' | 'offline';
@@ -48,13 +103,18 @@ export async function checkGeminiHealth(): Promise<{
   error?: string | null;
 }> {
   loadEnvFromFile();
-  const apiKey = (process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY || '').trim();
-  if (!apiKey) {
+  const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
+  const openrouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
+
+  const hasValidGemini = Boolean(geminiKey && !geminiKey.startsWith('your-'));
+  const hasValidOpenRouter = Boolean(openrouterKey && !openrouterKey.startsWith('your-'));
+
+  if (!hasValidGemini && !hasValidOpenRouter) {
     return {
       live: false,
       status: 'offline',
       model: 'deterministic-fallback',
-      error: 'Missing API Key in .env (GEMINI_API_KEY or OPENROUTER_API_KEY required)'
+      error: 'Missing or placeholder API key in .env (Please insert valid GEMINI_API_KEY or OPENROUTER_API_KEY)'
     };
   }
 
@@ -64,60 +124,81 @@ export async function checkGeminiHealth(): Promise<{
     return {
       live: lastModelLiveStatus,
       status: lastModelLiveStatus ? 'live' : 'degraded',
-      model: SUPPORTED_MODELS[0],
+      model: hasValidOpenRouter ? 'openrouter/gemini' : SUPPORTED_MODELS[0],
       error: lastModelError
     };
   }
 
-  const ai = getGemini();
-  if (!ai) {
-    return {
-      live: false,
-      status: 'offline',
-      model: 'deterministic-fallback',
-      error: lastModelError || 'AI client unavailable'
-    };
-  }
-
-  try {
-    const timeoutPromise = new Promise<null>((_, reject) =>
-      setTimeout(() => reject(new Error('Model health probe timed out (check internet connection)')), 5000)
-    );
-    const probePromise = ai.models.generateContent({
-      model: SUPPORTED_MODELS[0],
-      contents: 'ping'
-    });
-
-    await Promise.race([probePromise, timeoutPromise]);
-    lastModelLiveStatus = true;
-    lastModelError = null;
-    lastModelCheckTime = now;
-    return {
-      live: true,
-      status: 'live',
-      model: SUPPORTED_MODELS[0]
-    };
-  } catch (err: any) {
-    lastModelLiveStatus = false;
-    const isQuota = err?.status === 429 || (err?.message && (err.message.includes('429') || err.message.includes('Quota') || err.message.includes('RESOURCE_EXHAUSTED')));
-    const isNetwork = err?.code === 'ENOTFOUND' || err?.message?.includes('fetch failed') || err?.message?.includes('timed out');
-    
-    if (isNetwork) {
-      lastModelError = 'Network Offline: Cannot reach LLM gateway. Please check your internet connection.';
-    } else if (isQuota) {
-      lastModelError = 'Gemini API quota/rate-limit exceeded (HTTP 429)';
-    } else {
-      lastModelError = err?.message || 'Failed to contact model API';
+  // Try OpenRouter first if openrouter key is present
+  if (hasValidOpenRouter) {
+    try {
+      const probeResult = await generateWithOpenRouter('ping');
+      if (probeResult) {
+        lastModelLiveStatus = true;
+        lastModelError = null;
+        lastModelCheckTime = now;
+        return {
+          live: true,
+          status: 'live',
+          model: 'openrouter/gemini-2.0-flash'
+        };
+      }
+    } catch {
+      // Fall through to Gemini check
     }
-    
-    lastModelCheckTime = now;
-    return {
-      live: false,
-      status: 'degraded',
-      model: SUPPORTED_MODELS[0],
-      error: lastModelError
-    };
   }
+
+  if (hasValidGemini) {
+    const ai = getGemini();
+    if (ai) {
+      try {
+        const timeoutPromise = new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error('Model health probe timed out')), 5000)
+        );
+        const probePromise = ai.models.generateContent({
+          model: SUPPORTED_MODELS[0],
+          contents: 'ping'
+        });
+
+        await Promise.race([probePromise, timeoutPromise]);
+        lastModelLiveStatus = true;
+        lastModelError = null;
+        lastModelCheckTime = now;
+        return {
+          live: true,
+          status: 'live',
+          model: SUPPORTED_MODELS[0]
+        };
+      } catch (err: any) {
+        lastModelLiveStatus = false;
+        const isQuota = err?.status === 429 || (err?.message && (err.message.includes('429') || err.message.includes('Quota') || err.message.includes('RESOURCE_EXHAUSTED')));
+        const isNetwork = err?.code === 'ENOTFOUND' || err?.message?.includes('fetch failed') || err?.message?.includes('timed out');
+
+        if (isNetwork) {
+          lastModelError = 'Network Offline: Cannot reach LLM gateway. Please check your internet connection.';
+        } else if (isQuota) {
+          lastModelError = 'Gemini API quota/rate-limit exceeded (HTTP 429)';
+        } else {
+          lastModelError = err?.message || 'Failed to contact model API';
+        }
+
+        lastModelCheckTime = now;
+        return {
+          live: false,
+          status: 'degraded',
+          model: SUPPORTED_MODELS[0],
+          error: lastModelError
+        };
+      }
+    }
+  }
+
+  return {
+    live: false,
+    status: 'offline',
+    model: 'deterministic-fallback',
+    error: lastModelError || 'No valid active LLM provider reachable'
+  };
 }
 
 export function getGeminiStatus(): {
@@ -127,19 +208,22 @@ export function getGeminiStatus(): {
   error?: string | null;
 } {
   loadEnvFromFile();
-  const hasKey = Boolean((process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY || '').trim());
+  const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
+  const openrouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
+  const hasKey = Boolean((geminiKey && !geminiKey.startsWith('your-')) || (openrouterKey && !openrouterKey.startsWith('your-')));
+
   if (!hasKey) {
     return {
       live: false,
       status: 'offline',
       model: 'deterministic-fallback',
-      error: 'Missing API Key in .env file'
+      error: 'Missing valid API Key in .env file'
     };
   }
   return {
     live: lastModelLiveStatus,
     status: lastModelLiveStatus ? 'live' : (lastModelError ? 'degraded' : 'offline'),
-    model: SUPPORTED_MODELS[0],
+    model: openrouterKey && !openrouterKey.startsWith('your-') ? 'openrouter/gemini' : SUPPORTED_MODELS[0],
     error: lastModelError
   };
 }
@@ -148,6 +232,15 @@ export async function generateWithGemini(
   prompt: string,
   systemInstruction?: string
 ): Promise<string | null> {
+  loadEnvFromFile();
+  const openrouterKey = (process.env.OPENROUTER_API_KEY || '').trim();
+
+  // Try OpenRouter first if valid OpenRouter key is configured
+  if (openrouterKey && !openrouterKey.startsWith('your-')) {
+    const openRouterRes = await generateWithOpenRouter(prompt, systemInstruction);
+    if (openRouterRes) return openRouterRes;
+  }
+
   const ai = getGemini();
   if (!ai) {
     lastModelLiveStatus = false;
