@@ -244,6 +244,57 @@ export const EXERCISE_FIXTURES: ExerciseFixtureItem[] = [
     }
   },
 
+  // 3b. RECURSION — PREREQUISITE READINESS (MCQ)
+  {
+    id: 'fix_ds_recursion_readiness_01',
+    domain: 'Computer Science',
+    concept_id: 'recursion',
+    concept_title: 'Recursion',
+    format: 'mcq',
+    phase_intent: 'PREREQ_READINESS',
+    difficulty: 'Foundational',
+    exercise: {
+      exercise_id: 'fix_ds_recursion_readiness_01',
+      concept_id: 'recursion',
+      concept_title: 'Recursion',
+      format: 'mcq',
+      question_format: 'mcq',
+      prompt: 'In a recursive function call, what prevents execution from continuing infinitely until memory exhaustion?',
+      options: [
+        'A base case condition that returns without initiating another recursive call',
+        'An automatic operating system timeout after ten invocations',
+        'The garbage collector clearing active execution frames',
+        'Variables automatically resetting to null on each nested step'
+      ],
+      mcq_options: [
+        'A base case condition that returns without initiating another recursive call',
+        'An automatic operating system timeout after ten invocations',
+        'The garbage collector clearing active execution frames',
+        'Variables automatically resetting to null on each nested step'
+      ],
+      difficulty: 'Foundational',
+      phase_intent: 'PREREQ_READINESS',
+      cognitive_demand: 'Foundational Recall'
+    },
+    answer_key: {
+      exercise_id: 'fix_ds_recursion_readiness_01',
+      concept_id: 'recursion',
+      correct_option_id: 'A',
+      correct_option_index: 0,
+      accepted_answers: ['A base case condition that returns without initiating another recursive call'],
+      canonical_answer: 'A base case condition that returns without initiating another recursive call',
+      required_evidence: ['Base case terminates recursive chain'],
+      rubric: {
+        rubric_type: 'conceptual',
+        criteria: [{ id: 'base_case_termination', description: 'Base case terminates calls', required: true }]
+      },
+      misconception_signals: ['os_timeout_confusion'],
+      private_test_cases: [],
+      reference_solution_metadata: { approach: 'Recursive termination invariant' },
+      evaluation_notes: []
+    }
+  },
+
   // 4. MATHEMATICS / LINEAR ALGEBRA — MATRIX MULTIPLICATION (MCQ)
   {
     id: 'fix_math_matrix_01',
@@ -403,7 +454,10 @@ export class ExerciseFixtureRegistry {
   ): ExerciseFixtureItem | undefined {
     const normConcept = conceptId.toLowerCase();
     return EXERCISE_FIXTURES.find((f) => {
-      const matchConcept = f.concept_id.toLowerCase() === normConcept || normConcept.includes(f.concept_id.toLowerCase());
+      const matchConcept =
+        f.concept_id.toLowerCase() === normConcept ||
+        normConcept.includes(f.concept_id.toLowerCase()) ||
+        f.concept_id.toLowerCase().includes(normConcept);
       const matchIntent = phaseIntent ? f.phase_intent === phaseIntent : true;
       const matchFormat = format ? f.format === format : true;
       return matchConcept && matchIntent && matchFormat;
@@ -417,17 +471,18 @@ export class ExerciseFixtureRegistry {
     difficulty = 'Intermediate'
   ): ExerciseFixtureItem {
     const exId = `ex_vetted_${Date.now()}`;
+    const conceptSlug = conceptTitle.toLowerCase().replace(/\s+/g, '_');
     return {
       id: exId,
       domain: subject,
-      concept_id: conceptTitle.toLowerCase().replace(/\s+/g, '_'),
+      concept_id: conceptSlug,
       concept_title: conceptTitle,
       format: 'mcq',
       phase_intent: phaseIntent,
       difficulty,
       exercise: {
         exercise_id: exId,
-        concept_id: conceptTitle.toLowerCase().replace(/\s+/g, '_'),
+        concept_id: conceptSlug,
         concept_title: conceptTitle,
         format: 'mcq',
         question_format: 'mcq',
@@ -451,7 +506,7 @@ export class ExerciseFixtureRegistry {
       },
       answer_key: {
         exercise_id: exId,
-        concept_id: conceptTitle.toLowerCase().replace(/\s+/g, '_'),
+        concept_id: conceptSlug,
         correct_option_id: 'A',
         correct_option_index: 0,
         accepted_answers: [`All governing structural invariants and boundary constraints must be satisfied`],

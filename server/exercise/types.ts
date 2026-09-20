@@ -25,6 +25,8 @@ export type ExerciseGenerationStrategy =
   | 'PREREQUISITE_RECHECK'
   | 'RETRIEVAL';
 
+export type GenerationMode = 'LIVE' | 'REPLAY' | 'FAILURE';
+
 export interface ExerciseInputContext {
   student_id?: string;
   course_id?: string;
@@ -32,9 +34,18 @@ export interface ExerciseInputContext {
   target_concept: string;
   active_concept: string;
   concept_title: string;
-  phase_intent: ExercisePhaseIntent;
+  phase_intent: ExercisePhaseIntent | string;
   learner_level?: 'beginner' | 'intermediate' | 'advanced' | 'expert' | string;
   learning_goal?: 'understand' | 'exam' | 'interview' | 'practice' | 'revision' | 'deep_dive' | string;
+
+  // Active Roadmap Part Context
+  roadmap_part?: {
+    part_number: number;
+    title: string;
+    objective: string;
+    cognitive_demand?: string;
+    key_focus_areas?: string[];
+  };
 
   // Tutor teaching context handoff
   tutor_handoff?: {
@@ -43,12 +54,13 @@ export interface ExerciseInputContext {
       objective_id?: string;
       objective_type?: string;
       objective?: string;
+      required_evidence?: string[];
     }>;
     examples_used?: string[];
     misconceptions_addressed?: string[];
     teaching_strategy?: string;
     teaching_mode?: string;
-    support_level?: string;
+    support_level?: 'FULLY_WORKED' | 'GUIDED' | 'FADED' | 'INDEPENDENT' | string;
     scaffold_level?: string;
     lesson_summary?: string;
     concepts_explicitly_demonstrated?: string[];
@@ -62,36 +74,49 @@ export interface ExerciseInputContext {
     confirmed_misconception?: string | null;
     candidate_misconception?: string | null;
     reasoning_summary?: string;
+    confidence?: number;
   };
 
   // Evaluation & Session History
   latest_evaluation?: {
-    status?: string;
+    status?: 'demonstrated' | 'unresolved' | 'uncertain' | string;
     missing_evidence?: string[];
     misconceptions?: string[];
     score?: number;
+    reasoning_summary?: string;
   };
 
   previous_exercise_ids?: string[];
   previous_question_signatures?: string[];
+  recent_formats?: ExerciseFormat[];
+  recent_strategies?: ExerciseGenerationStrategy[];
   recent_difficulties?: string[];
   recent_success_rate?: number;
   attempt_count?: number;
   revision_depth?: number;
   evidence_ref?: string;
   provenance_type?: ProvenanceType;
+
+  // Explicit configuration flags
+  force_replay_mode?: boolean;
 }
 
 export interface ExerciseBlueprint {
+  blueprint_id: string;
   strategy: ExerciseGenerationStrategy;
   format: ExerciseFormat;
   difficulty_band: ExerciseDifficultyBand;
   target_objective: string;
+  objective_id: string;
   objective_type: string;
   cognitive_demand: string;
   target_misconception?: string;
   isomorphic_to_previous: boolean;
+  source_exercise_id?: string;
+  independence_level: 'guided' | 'faded' | 'independent';
+  reason_for_selection: string;
   required_evidence_criteria: string[];
+  freshness_requirement: 'unique_context' | 'isomorphic_numbers' | 'new_scenario';
 }
 
 export interface QuestionQualityMetric {
@@ -115,6 +140,29 @@ export interface ExerciseGenerationOutcome {
   answer_key: ExerciseAnswerKey;
   blueprint: ExerciseBlueprint;
   quality_result: QuestionQualityResult;
-  generation_mode: 'LIVE' | 'REPLAY' | 'SAFE_FALLBACK';
+  generation_mode: GenerationMode;
   execution_time_ms: number;
+  telemetry?: {
+    model_provider?: string;
+    model_name?: string;
+    prompt_tokens_est?: number;
+    latency_ms?: number;
+    revision_count?: number;
+  };
+}
+
+export interface AssessmentHistoryRecord {
+  exercise_id: string;
+  concept_id: string;
+  objective_id?: string;
+  phase_intent: string;
+  strategy: ExerciseGenerationStrategy;
+  format: ExerciseFormat;
+  difficulty: ExerciseDifficultyBand;
+  misconception_target?: string;
+  timestamp: string;
+  evaluation_status?: string;
+  score?: number;
+  generation_mode: GenerationMode;
+  revision_number?: number;
 }

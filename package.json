@@ -8,13 +8,14 @@
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "lint": "tsc --noEmit",
-    "test": "tsx tests/workflowTests.ts && tsx tests/graphValidator.test.ts && tsx tests/codeSandbox.test.ts && tsx tests/partPlanner.test.ts && tsx tests/offlineAndFailureIntegrity.test.ts",
+    "test": "tsx tests/workflowTests.ts && tsx tests/graphValidator.test.ts && tsx tests/codeSandbox.test.ts && tsx tests/partPlanner.test.ts && tsx tests/offlineAndFailureIntegrity.test.ts && tsx tests/exerciseAgentQuality.test.ts",
     "test:workflow": "tsx tests/workflowTests.ts",
     "test:benchmark": "tsx tests/benchmark.ts",
     "test:graph": "tsx tests/graphValidator.test.ts",
     "test:sandbox": "tsx tests/codeSandbox.test.ts",
     "test:planner": "tsx tests/partPlanner.test.ts",
     "test:integrity": "tsx tests/offlineAndFailureIntegrity.test.ts",
+    "test:exercise": "tsx tests/exerciseAgentQuality.test.ts",
     "preview": "vite preview --host 0.0.0.0 --port 3000"
   },
   "dependencies": {

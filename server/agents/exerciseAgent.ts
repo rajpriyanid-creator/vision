@@ -34,7 +34,24 @@ import {
 } from '../exercise/types';
 import { StrategySelector } from '../exercise/strategySelector';
 import { QuestionGenerator } from '../exercise/questionGenerator';
-import { ExerciseFixtureRegistry } from '../exercise/exerciseFixtures';
+import { LeakageGuard } from '../exercise/leakageGuard';
+import { generateWithGemini } from '../gemini';
+
+export interface PrereqQuizQuestion {
+  id: number;
+  question: string;
+  options: string[];
+  correct_index: number;
+  correct_answer: string;
+  explanation: string;
+}
+
+export interface PrereqQuiz {
+  concept: string;
+  prerequisite: string;
+  concept_title: string;
+  questions: PrereqQuizQuestion[];
+}
 
 export class ExerciseAgent {
   /**
@@ -56,11 +73,106 @@ export class ExerciseAgent {
     const outcome: ExerciseGenerationOutcome = await QuestionGenerator.generate(context, blueprint);
 
     // Ensure hidden test cases or expected answer fields do not leak into the public exercise
-    if (outcome.exercise.test_cases) {
-      delete outcome.exercise.test_cases;
-    }
+    outcome.exercise = LeakageGuard.sanitizePublicExercise(outcome.exercise);
 
     return outcome;
+  }
+
+  /**
+   * Generates a 2-question multiple choice diagnostic quiz for prerequisite verification.
+   */
+  async generatePrereqDiagnosticQuiz(
+    prereqId: string,
+    prereqTitle: string,
+    subject: string
+  ): Promise<PrereqQuiz> {
+    const prompt = `You are the EXERCISE AGENT for VISION.
+Subject: "${subject}"
+Prerequisite Concept: "${prereqTitle}" (${prereqId})
+
+Generate a 2-question multiple choice diagnostic quiz to assess whether a learner possesses the foundational knowledge for this prerequisite.
+Ensure:
+1. Questions are domain-specific and test essential invariants.
+2. 4 unique options per question with 1 unambiguous correct answer.
+3. No answer leakage in questions.
+
+Output strictly valid JSON:
+{
+  "concept": "${prereqId}",
+  "prerequisite": "${prereqId}",
+  "concept_title": "${prereqTitle}",
+  "questions": [
+    {
+      "id": 1,
+      "question": "Question 1 text?",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correct_index": 0,
+      "correct_answer": "Option A",
+      "explanation": "Why this answer is correct"
+    },
+    {
+      "id": 2,
+      "question": "Question 2 text?",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correct_index": 1,
+      "correct_answer": "Option B",
+      "explanation": "Why this answer is correct"
+    }
+  ]
+}`;
+
+    try {
+      const aiText = await generateWithGemini(prompt);
+      if (aiText) {
+        const cleaned = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(cleaned);
+        if (Array.isArray(parsed.questions) && parsed.questions.length >= 2) {
+          return {
+            concept: prereqId,
+            prerequisite: prereqId,
+            concept_title: prereqTitle,
+            questions: parsed.questions
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Live prereq quiz generation failed, using structured fallback:', err);
+    }
+
+    // High quality domain-agnostic fallback
+    return {
+      concept: prereqId,
+      prerequisite: prereqId,
+      concept_title: prereqTitle,
+      questions: [
+        {
+          id: 1,
+          question: `Which fundamental principle is essential for understanding ${prereqTitle}?`,
+          options: [
+            'Recognizing core boundary rules and governing invariants',
+            'Memorizing variable labels without contextual rules',
+            'Bypassing prerequisite validation criteria',
+            'Assuming unhandled states produce zero downstream side-effects'
+          ],
+          correct_index: 0,
+          correct_answer: 'Recognizing core boundary rules and governing invariants',
+          explanation: `Comprehension of ${prereqTitle} requires understanding governing invariant conditions.`
+        },
+        {
+          id: 2,
+          question: `How does ${prereqTitle} support dependent higher-level concepts?`,
+          options: [
+            'It operates in total isolation with zero impact on dependent stages',
+            'It establishes the structural guarantees that subsequent operations rely upon',
+            'It replaces the need for algorithmic correctness checks',
+            'It only applies to single-pass static execution environments'
+          ],
+          correct_index: 1,
+          correct_answer: 'It establishes the structural guarantees that subsequent operations rely upon',
+          explanation: 'Prerequisites maintain the underlying state guarantees necessary for downstream concepts.'
+        }
+      ]
+    };
   }
 
   /**
@@ -95,13 +207,7 @@ export class ExerciseAgent {
       previous_exercise_ids: input.previous_exercise_ids || (input.previous_exercise_id ? [input.previous_exercise_id] : [])
     });
 
-    // Populate legacy backward-compatibility expected_answer in internal memory if caller expects it
-    const exercise = outcome.exercise;
-    if (outcome.answer_key.canonical_answer) {
-      exercise.expected_answer = outcome.answer_key.canonical_answer;
-    }
-
-    return exercise;
+    return outcome.exercise;
   }
 }
 

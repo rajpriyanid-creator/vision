@@ -7,10 +7,12 @@ import {
   ExerciseInputContext,
   ExerciseBlueprint,
   ExerciseGenerationOutcome,
-  QuestionQualityResult
+  QuestionQualityResult,
+  GenerationMode
 } from './types';
 import { ExerciseQualityGate } from './qualityGate';
 import { ExerciseFixtureRegistry } from './exerciseFixtures';
+import { LeakageGuard } from './leakageGuard';
 
 export class QuestionGenerator {
   /**
@@ -29,27 +31,31 @@ export class QuestionGenerator {
     let exercise: Exercise | null = null;
     let answerKey: ExerciseAnswerKey | null = null;
     let qualityResult: QuestionQualityResult | null = null;
-    let generationMode: 'LIVE' | 'REPLAY' | 'SAFE_FALLBACK' = 'LIVE';
+    let generationMode: GenerationMode = 'LIVE';
 
-    try {
-      rawAiResponse = await generateWithGemini(prompt);
-      if (rawAiResponse) {
-        const parsed = this.parseResponse(rawAiResponse, exerciseId, context, blueprint);
-        if (parsed) {
-          exercise = parsed.exercise;
-          answerKey = parsed.answerKey;
+    // If force replay requested, skip LLM
+    if (context.force_replay_mode) {
+      generationMode = 'REPLAY';
+    } else {
+      try {
+        rawAiResponse = await generateWithGemini(prompt);
+        if (rawAiResponse) {
+          const parsed = this.parseResponse(rawAiResponse, exerciseId, context, blueprint);
+          if (parsed) {
+            exercise = parsed.exercise;
+            answerKey = parsed.answerKey;
 
-          // Run Quality Gate
-          qualityResult = ExerciseQualityGate.evaluate(
-            exercise,
-            answerKey,
-            blueprint,
-            context.previous_question_signatures || []
-          );
+            // Run Quality Gate
+            qualityResult = ExerciseQualityGate.evaluate(
+              exercise,
+              answerKey,
+              blueprint,
+              context.previous_question_signatures || []
+            );
 
-          // If Quality Gate flagged REVISE (e.g. slight leakage or option mismatch), attempt ONE bounded repair
-          if (qualityResult.status === 'REVISE') {
-            const revisionPrompt = `You are the EXERCISE QUALITY GATE for VISION.
+            // If Quality Gate flagged REVISE (e.g. slight leakage or option mismatch), attempt ONE bounded repair
+            if (qualityResult.status === 'REVISE') {
+              const revisionPrompt = `You are the EXERCISE QUALITY GATE for VISION.
 The previous assessment had minor quality issues:
 ${qualityResult.inconsistencies.concat(qualityResult.leakage_reasons).join('\n')}
 
@@ -65,44 +71,46 @@ Output strictly valid JSON:
   "answer_key": { ... }
 }`;
 
-            const revisionRes = await generateWithGemini(revisionPrompt);
-            if (revisionRes) {
-              const revisedParsed = this.parseResponse(revisionRes, exerciseId, context, blueprint);
-              if (revisedParsed) {
-                exercise = revisedParsed.exercise;
-                answerKey = revisedParsed.answerKey;
-                qualityResult = ExerciseQualityGate.evaluate(
-                  exercise,
-                  answerKey,
-                  blueprint,
-                  context.previous_question_signatures || []
-                );
-                exercise.quality_status = 'REVISED';
+              const revisionRes = await generateWithGemini(revisionPrompt);
+              if (revisionRes) {
+                const revisedParsed = this.parseResponse(revisionRes, exerciseId, context, blueprint);
+                if (revisedParsed) {
+                  exercise = revisedParsed.exercise;
+                  answerKey = revisedParsed.answerKey;
+                  qualityResult = ExerciseQualityGate.evaluate(
+                    exercise,
+                    answerKey,
+                    blueprint,
+                    context.previous_question_signatures || []
+                  );
+                  exercise.quality_status = 'REVISED';
+                }
               }
             }
-          }
 
-          // If still minor issues, apply deterministic repairs (e.g. shuffling MCQ, stripping leaked fields)
-          if (exercise && answerKey) {
-            const repaired = ExerciseQualityGate.repairExercise(exercise, answerKey);
-            exercise = repaired.exercise;
-            answerKey = repaired.answerKey;
+            // Apply deterministic repairs and sanitize public fields
+            if (exercise && answerKey) {
+              const repaired = ExerciseQualityGate.repairExercise(exercise, answerKey);
+              exercise = repaired.exercise;
+              answerKey = repaired.answerKey;
+            }
           }
         }
+      } catch (err) {
+        console.warn('Live exercise generation failed, falling back to safe fixture generator:', err);
       }
-    } catch (err) {
-      console.warn('Live exercise generation failed, falling back to safe fixture generator:', err);
     }
 
-    // If live generation failed or was rejected by Quality Gate, use safe vetted generator
+    // If live generation failed or was rejected by Quality Gate, use safe vetted generator in REPLAY mode
     if (!exercise || !answerKey) {
-      generationMode = 'SAFE_FALLBACK';
+      generationMode = 'REPLAY';
       const fixtureItem =
-        ExerciseFixtureRegistry.findFixture(context.active_concept, context.phase_intent, blueprint.format) ||
+        ExerciseFixtureRegistry.findFixture(context.active_concept, String(context.phase_intent), blueprint.format) ||
+        ExerciseFixtureRegistry.findFixture(context.active_concept) ||
         ExerciseFixtureRegistry.getFallbackFixture(
           context.concept_title,
           context.subject,
-          context.phase_intent,
+          String(context.phase_intent),
           blueprint.difficulty_band
         );
 
@@ -111,7 +119,7 @@ Output strictly valid JSON:
         exercise_id: exerciseId,
         concept_id: context.active_concept,
         concept_title: context.concept_title,
-        generation_mode: 'SAFE_FALLBACK',
+        generation_mode: 'REPLAY',
         quality_status: 'SAFE_FALLBACK'
       };
 
@@ -121,6 +129,8 @@ Output strictly valid JSON:
         concept_id: context.active_concept
       };
 
+      // Sanitize public exercise
+      exercise = LeakageGuard.sanitizePublicExercise(exercise);
       qualityResult = ExerciseQualityGate.evaluate(exercise, answerKey, blueprint, []);
     }
 
@@ -146,7 +156,7 @@ Output strictly valid JSON:
     exerciseId: string
   ): string {
     return `You are the EXERCISE AGENT for the VISION adaptive study engine.
-Generate an assessment for the concept: "${context.concept_title}" (${context.active_concept}) in "${context.subject}".
+Generate a rigorous, domain-specific assessment for the concept: "${context.concept_title}" (${context.active_concept}) in "${context.subject}".
 
 CONTEXT & METRICS:
 - Phase Intent: "${context.phase_intent}" (Target Concept: "${context.target_concept}")
@@ -156,9 +166,10 @@ CONTEXT & METRICS:
 - Cognitive Demand: "${blueprint.cognitive_demand}"
 - Learning Goal: "${context.learning_goal || 'understand'}"
 - Learner Level: "${context.learner_level || 'intermediate'}"
+${context.roadmap_part ? `- Milestone Part ${context.roadmap_part.part_number}: "${context.roadmap_part.title}" (${context.roadmap_part.objective})` : ''}
 ${context.tutor_handoff?.lesson_summary ? `- What Tutor Taught: "${context.tutor_handoff.lesson_summary}"` : ''}
 ${blueprint.target_misconception ? `- Address Misconception: "${blueprint.target_misconception}"` : ''}
-${blueprint.isomorphic_to_previous ? '- NOTE: Must be ISOMORPHIC with different surface numbers/context to test genuine transfer.' : ''}
+${blueprint.isomorphic_to_previous ? '- NOTE: Must be ISOMORPHIC with different numbers/variables to test genuine transfer.' : ''}
 
 ASSESSMENT REQUIREMENTS:
 1. Question must be domain-specific, fair, unambiguous, and directly test whether the learner can independently perform the objective.
@@ -238,7 +249,7 @@ Output STRICTLY JSON with this schema:
           code_starter: exData.starter_code || exData.code_starter || '',
           language: exData.language || 'javascript',
           public_examples: Array.isArray(exData.public_examples) ? exData.public_examples : [],
-          phase_intent: context.phase_intent,
+          phase_intent: context.phase_intent as any,
           generation_mode: 'LIVE',
           quality_status: 'PASS'
         };
