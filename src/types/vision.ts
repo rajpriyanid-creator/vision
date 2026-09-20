@@ -112,9 +112,22 @@ export interface MisconceptionContrastItem {
   key_distinction: string;
 }
 
+export interface ConceptExampleItem {
+  title: string;
+  scenario: string;
+  steps: Array<{ step_number?: number; action: string; reason?: string; state_transition?: string }>;
+  result?: string;
+  visual_or_output?: string;
+  explanation?: string;
+}
+
 export interface TeachingAction {
   explanation?: string;
   explanation_text?: string;
+  definition?: string;
+  examples?: ConceptExampleItem[];
+  pseudocode_python?: string;
+  pseudocode_language?: string;
   key_takeaways?: string[];
   code_example?: string;
   teaching_mode?: string;

@@ -13,6 +13,7 @@ import { DagVisualizer } from './components/DagVisualizer';
 import { AgentTimeline } from './components/AgentTimeline';
 import { BackendConfigModal } from './components/BackendConfigModal';
 import { StudentProfileDrawer } from './components/StudentProfileDrawer';
+import { AgentStatusBar } from './components/AgentStatusBar';
 
 export const App: React.FC = () => {
   const {
@@ -87,6 +88,9 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#090D16] text-[#DFE8F2] selection:bg-[#00D2FF]/20 selection:text-[#00D2FF]">
+      {/* Top Agent Status Bar for Continuous Live Telemetry in Every Page */}
+      <AgentStatusBar />
+
       {/* Top Navigation Bar */}
       <header className="sticky top-0 z-40 w-full border-b border-[#1F2F4A] bg-[#0B111E]/90 backdrop-blur-md px-4 sm:px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">

@@ -243,6 +243,15 @@ export interface TeachingOutcome {
   timestamp: string;
 }
 
+export interface ConceptExample {
+  title: string;
+  scenario: string;
+  steps: Array<{ step_number?: number; action: string; reason?: string; state_transition?: string }>;
+  result?: string;
+  visual_or_output?: string;
+  explanation?: string;
+}
+
 export interface TeachingAction {
   run_id?: string;
   concept_id: string;
@@ -255,6 +264,10 @@ export interface TeachingAction {
   objective_summary?: string;
   learning_objectives?: LearningObjective[];
   lesson_blocks?: LessonBlock[];
+  definition?: string;
+  examples?: ConceptExample[];
+  pseudocode_python?: string;
+  pseudocode_language?: string;
   worked_example?: WorkedExample;
   faded_example?: FadedExample;
   misconception_contrast?: MisconceptionContrast;
