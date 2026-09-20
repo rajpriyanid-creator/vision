@@ -18,7 +18,7 @@ export class AnswerKeyValidator {
     blueprint: ExerciseBlueprint
   ): ConsistencyValidationResult {
     const issues: string[] = [];
-    const format = String(exercise.format || exercise.question_format || 'mcq').toLowerCase();
+    const format = 'mcq';
 
     // 1. MCQ Single-Correct Consistency
     if (format === 'mcq') {

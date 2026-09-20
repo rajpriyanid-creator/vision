@@ -94,7 +94,7 @@ export class StrategySelector {
       reasonForSelection = 'Readiness check selected to verify prerequisite foundation before target instruction.';
     } else if (normPhase === 'PREREQ_RECHECK' || normPhase.includes('RECHECK')) {
       strategy = 'PREREQUISITE_RECHECK';
-      format = normalizedLevel === 'beginner' ? 'mcq' : 'short_answer';
+      format = 'mcq';
       cognitiveDemand = 'Foundational Verification';
       difficultyBand = 'Foundational';
       reasonForSelection = 'Targeted prerequisite recheck selected to confirm foundational repair.';
@@ -102,10 +102,7 @@ export class StrategySelector {
       strategy = 'TRANSFER';
       isomorphic = true;
       cognitiveDemand = 'Isomorphic Transfer & Application';
-      // Vary format from recent if possible
-      format = recent_formats.length > 0 && recent_formats[recent_formats.length - 1] === 'mcq'
-        ? 'short_answer'
-        : 'mcq';
+      format = 'mcq';
       difficultyBand = 'Intermediate';
       reasonForSelection = 'Fresh isomorphic retest selected to distinguish genuine mastery from surface memorization.';
     } else if (diagnosedMisconception) {
@@ -121,12 +118,12 @@ export class StrategySelector {
 
       if (tutorStrategy === 'CODE_TRACE' || tutor_handoff?.teaching_mode?.includes('trace')) {
         strategy = 'CODE_TRACE';
-        format = 'code_trace';
+        format = 'mcq';
         cognitiveDemand = 'Procedural State Tracing';
         reasonForSelection = 'Procedural trace selected matching Tutor code execution walkthrough.';
       } else if (tutorStrategy === 'WORKED_EXAMPLE' || tutorStrategy === 'FADED_WORKED_EXAMPLE') {
         strategy = 'APPLICATION';
-        format = normalizedGoal === 'interview' ? 'coding' : 'mcq';
+        format = 'mcq';
         cognitiveDemand = 'Stepwise Application';
         reasonForSelection = 'Application item selected to practice applying worked example principles.';
       } else if (tutorStrategy === 'CONTRASTIVE_EXPLANATION' || tutorStrategy === 'MISCONCEPTION_REPAIR') {
@@ -141,19 +138,19 @@ export class StrategySelector {
         reasonForSelection = 'Exam-style application scenario selected with strict distractors.';
       } else if (normalizedGoal === 'interview') {
         strategy = 'APPLICATION';
-        format = normalizedLevel === 'advanced' ? 'coding' : 'short_answer';
+        format = 'mcq';
         cognitiveDemand = 'Mechanism & Trade-off Justification';
         reasonForSelection = 'Interview-style problem selected requiring justification of algorithmic invariants.';
       } else if (normalizedGoal === 'revision') {
         strategy = 'RETRIEVAL';
-        format = 'fill_in_blank';
+        format = 'mcq';
         cognitiveDemand = 'Active Recall';
-        reasonForSelection = 'Retrieval fill-in-the-blank item selected for efficient concept verification.';
+        reasonForSelection = 'Retrieval MCQ item selected for efficient concept verification.';
       } else if (normalizedGoal === 'deep_dive') {
         strategy = 'TRANSFER';
-        format = 'writing';
+        format = 'mcq';
         cognitiveDemand = 'System Analysis & Transfer';
-        reasonForSelection = 'Deep-dive transfer writing item selected to test conceptual depth.';
+        reasonForSelection = 'Deep-dive transfer MCQ item selected to test conceptual depth.';
       } else {
         // Default Understand
         strategy = 'CONCEPT_CHECK';

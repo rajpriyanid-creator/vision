@@ -198,16 +198,28 @@ export const EXERCISE_FIXTURES: ExerciseFixtureItem[] = [
     domain: 'Computer Science',
     concept_id: 'recursion',
     concept_title: 'Recursion',
-    format: 'short_answer',
+    format: 'mcq',
     phase_intent: 'PREREQ_RECHECK',
     difficulty: 'Foundational',
     exercise: {
       exercise_id: 'fix_ds_recursion_prereq_01',
       concept_id: 'recursion',
       concept_title: 'Recursion',
-      format: 'short_answer',
-      question_format: 'short_answer',
-      prompt: 'Explain what happens when a recursive function reaches its base case and why the base case is essential.',
+      format: 'mcq',
+      question_format: 'mcq',
+      prompt: 'What happens when a recursive function reaches its base case, and why is the base case essential?',
+      options: [
+        'It terminates further recursive calls and returns back up the call stack, preventing stack overflow',
+        'It resets global memory and restarts function execution from the beginning',
+        'It deletes all stack frames instantly without returning values',
+        'It bypasses parameter checks and forces a garbage collection cycle'
+      ],
+      mcq_options: [
+        'It terminates further recursive calls and returns back up the call stack, preventing stack overflow',
+        'It resets global memory and restarts function execution from the beginning',
+        'It deletes all stack frames instantly without returning values',
+        'It bypasses parameter checks and forces a garbage collection cycle'
+      ],
       difficulty: 'Foundational',
       phase_intent: 'PREREQ_RECHECK',
       cognitive_demand: 'Comprehension & Invariant Explanation'
@@ -215,8 +227,10 @@ export const EXERCISE_FIXTURES: ExerciseFixtureItem[] = [
     answer_key: {
       exercise_id: 'fix_ds_recursion_prereq_01',
       concept_id: 'recursion',
-      accepted_answers: ['terminates recursion and returns without making further recursive calls'],
-      canonical_answer: 'The base case stops further recursive calls and begins returning values back up the call stack, preventing infinite recursion and stack overflow.',
+      correct_option_id: 'A',
+      correct_option_index: 0,
+      accepted_answers: ['It terminates further recursive calls and returns back up the call stack, preventing stack overflow'],
+      canonical_answer: 'It terminates further recursive calls and returns back up the call stack, preventing stack overflow',
       required_evidence: [
         'States that recursive calls stop / terminate',
         'Mentions unwinding or returning values up the call stack',
@@ -387,37 +401,47 @@ export const EXERCISE_FIXTURES: ExerciseFixtureItem[] = [
     }
   },
 
-  // 6. CODING — REVERSE LINKED LIST (CODING PROBLEM with public examples & private test cases)
+  // 6. REVERSE LINKED LIST (MCQ)
   {
     id: 'fix_coding_reverse_01',
     domain: 'Computer Science',
     concept_id: 'linked_list_reversal',
     concept_title: 'Linked List Reversal',
-    format: 'coding',
+    format: 'mcq',
     phase_intent: 'INITIAL_TARGET',
     difficulty: 'Intermediate',
     exercise: {
       exercise_id: 'fix_coding_reverse_01',
       concept_id: 'linked_list_reversal',
       concept_title: 'Linked List Reversal',
-      format: 'coding',
-      question_format: 'coding',
-      prompt: 'Implement a function `reverseList(head)` that reverses a singly linked list in-place and returns the new head.',
+      format: 'mcq',
+      question_format: 'mcq',
+      prompt: 'When reversing a singly linked list iteratively with pointers `prev`, `curr`, and `next`, what is the correct order of operations inside the traversal loop to prevent losing reference to the remaining nodes?',
+      options: [
+        'Save curr.next into next, point curr.next to prev, advance prev to curr, and advance curr to next',
+        'Point curr.next to prev, save curr.next into next, advance curr to next, and advance prev to curr',
+        'Advance prev to curr, save curr.next into next, point curr.next to prev, and set curr to null',
+        'Set prev to curr.next, point curr to prev, and break the loop immediately'
+      ],
+      mcq_options: [
+        'Save curr.next into next, point curr.next to prev, advance prev to curr, and advance curr to next',
+        'Point curr.next to prev, save curr.next into next, advance curr to next, and advance prev to curr',
+        'Advance prev to curr, save curr.next into next, point curr.next to prev, and set curr to null',
+        'Set prev to curr.next, point curr to prev, and break the loop immediately'
+      ],
       difficulty: 'Intermediate',
       phase_intent: 'INITIAL_TARGET',
-      cognitive_demand: 'Implementation',
-      starter_code: 'function reverseList(head) {\n  let prev = null;\n  let curr = head;\n  // Your code here\n  return prev;\n}',
-      language: 'javascript',
-      public_examples: [
-        { input: '[1, 2, 3, 4, 5]', output: '[5, 4, 3, 2, 1]', explanation: 'Reverses list pointers' },
-        { input: '[1, 2]', output: '[2, 1]', explanation: 'Two-node list reversed' }
-      ]
+      cognitive_demand: 'Implementation & Logic',
+      starter_code: 'function reverseList(head) {\n  let prev = null, curr = head;\n  while (curr) {\n    // What operations order is correct?\n  }\n  return prev;\n}',
+      language: 'javascript'
     },
     answer_key: {
       exercise_id: 'fix_coding_reverse_01',
       concept_id: 'linked_list_reversal',
-      accepted_answers: [],
-      canonical_answer: 'while (curr) { const next = curr.next; curr.next = prev; prev = curr; curr = next; } return prev;',
+      correct_option_id: 'A',
+      correct_option_index: 0,
+      accepted_answers: ['Save curr.next into next, point curr.next to prev, advance prev to curr, and advance curr to next'],
+      canonical_answer: 'Save curr.next into next, point curr.next to prev, advance prev to curr, and advance curr to next',
       required_evidence: ['Pointer rewiring loop', 'Preservation of next node before rewiring', 'Correct return of new head'],
       rubric: {
         rubric_type: 'coding',

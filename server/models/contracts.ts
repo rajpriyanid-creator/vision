@@ -290,19 +290,7 @@ export interface TeachingAction {
   provenance_type?: ProvenanceType;
 }
 
-export type ExerciseFormat =
-  | 'mcq'
-  | 'fill_in_blank'
-  | 'short_answer'
-  | 'free_text'
-  | 'writing'
-  | 'coding'
-  | 'coding_problem'
-  | 'code_trace'
-  | 'debugging'
-  | 'prediction'
-  | 'sequence'
-  | 'ordering';
+export type ExerciseFormat = 'mcq';
 
 export type ExercisePhaseIntent =
   | 'INITIAL_TARGET'

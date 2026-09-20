@@ -46,7 +46,7 @@ export interface ExerciseTestCase {
 
 export interface Exercise {
   exercise_id?: string;
-  format?: 'mcq' | 'fill_in_blank' | 'free_text' | 'coding_problem' | 'coding' | 'code_trace' | 'debugging' | 'prediction' | 'short_answer' | 'writing' | 'sequence' | string;
+  format?: 'mcq' | string;
   question_format?: string;
   prompt?: string;
   question_text?: string;

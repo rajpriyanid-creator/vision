@@ -173,9 +173,10 @@ ${blueprint.isomorphic_to_previous ? '- NOTE: Must be ISOMORPHIC with different 
 
 ASSESSMENT REQUIREMENTS:
 1. Question must be domain-specific, fair, unambiguous, and directly test whether the learner can independently perform the objective.
-2. DO NOT use generic AI clichés (e.g. "What is the primary architectural purpose of X?").
-3. DO NOT leak the answer in the prompt, options, hints, or starter code.
-4. Output separate "exercise" (public, learner-visible) and "answer_key" (evaluator-only, private).
+2. FORMAT REQUIREMENT: Format MUST strictly be "mcq". NEVER generate text-based or open-ended questions. Always provide 4 distinct, plausible options.
+3. DO NOT use generic AI clichés (e.g. "What is the primary architectural purpose of X?").
+4. DO NOT leak the answer in the prompt, options, hints, or starter code.
+5. Output separate "exercise" (public, learner-visible) and "answer_key" (evaluator-only, private).
 
 Output STRICTLY JSON with this schema:
 {
@@ -183,15 +184,13 @@ Output STRICTLY JSON with this schema:
     "exercise_id": "${exerciseId}",
     "concept_id": "${context.active_concept}",
     "concept_title": "${context.concept_title}",
-    "format": "${blueprint.format}",
+    "format": "mcq",
     "prompt": "Clear, concept-specific problem statement or scenario",
     "options": ["Option A", "Option B", "Option C", "Option D"],
     "difficulty": "${blueprint.difficulty_band}",
     "cognitive_demand": "${blueprint.cognitive_demand}",
     "starter_code": "// Optional starter snippet or context",
-    "public_examples": [
-      { "input": "...", "output": "...", "explanation": "..." }
-    ]
+    "public_examples": []
   },
   "answer_key": {
     "exercise_id": "${exerciseId}",
@@ -232,23 +231,31 @@ Output STRICTLY JSON with this schema:
         const exData = parsed.exercise;
         const keyData = parsed.answer_key;
 
+        const parsedOptions = Array.isArray(exData.options) ? exData.options : Array.isArray(exData.mcq_options) ? exData.mcq_options : [];
+        const finalOptions = parsedOptions.length >= 2 ? parsedOptions : [
+          `Primary structural requirement for ${context.concept_title}`,
+          `Alternative execution mode without structural invariants`,
+          `Direct state mutation bypassing prerequisite checks`,
+          `External module reference without state persistence`
+        ];
+
         const exercise: Exercise = {
           exercise_id: exerciseId,
           concept_id: context.active_concept,
           concept_title: context.concept_title,
-          format: exData.format || blueprint.format,
-          question_format: exData.format || blueprint.format,
+          format: 'mcq',
+          question_format: 'mcq',
           prompt: exData.prompt || exData.question_text || '',
           question_text: exData.prompt || exData.question_text || '',
-          options: Array.isArray(exData.options) ? exData.options : exData.mcq_options || [],
-          mcq_options: Array.isArray(exData.options) ? exData.options : exData.mcq_options || [],
-          blank_template: exData.blank_template,
+          options: finalOptions,
+          mcq_options: finalOptions,
+          blank_template: undefined,
           difficulty: exData.difficulty || blueprint.difficulty_band,
           cognitive_demand: exData.cognitive_demand || blueprint.cognitive_demand,
           starter_code: exData.starter_code || exData.code_starter || '',
           code_starter: exData.starter_code || exData.code_starter || '',
           language: exData.language || 'javascript',
-          public_examples: Array.isArray(exData.public_examples) ? exData.public_examples : [],
+          public_examples: [],
           phase_intent: context.phase_intent as any,
           generation_mode: 'LIVE',
           quality_status: 'PASS'

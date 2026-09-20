@@ -339,42 +339,6 @@ export const InitialTeaching: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* ACTIVE RECALL / SELF EXPLANATION PROMPT */}
-      {/* ========================================================================= */}
-      {selfExplanationPrompt && (
-        <div className="flex flex-col gap-3 p-5 rounded-xl bg-[#081224] border border-teal-500/30">
-          <span className="text-xs font-mono font-semibold uppercase tracking-wider text-teal-300 flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-sm">draw</span>
-            Active Self-Explanation Check
-          </span>
-          <p className="text-xs text-[#DFE8F2] leading-relaxed">{selfExplanationPrompt}</p>
-          {!reflectionSubmitted ? (
-            <div className="flex flex-col gap-2">
-              <textarea
-                value={userReflection}
-                onChange={(e) => setUserReflection(e.target.value)}
-                placeholder="Type your brief explanation here to calibrate your mental model before starting exercises..."
-                rows={2}
-                className="w-full rounded-lg bg-[#06080F] border border-[#1F2F4A] p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-400 font-sans"
-              />
-              <button
-                onClick={() => userReflection.trim() && setReflectionSubmitted(true)}
-                disabled={!userReflection.trim()}
-                className="self-end px-3.5 py-1.5 rounded-lg bg-teal-600/80 hover:bg-teal-500 text-white font-mono text-xs disabled:opacity-40 transition-colors"
-              >
-                Verify Explanation
-              </button>
-            </div>
-          ) : (
-            <div className="p-3 rounded-lg bg-teal-950/40 border border-teal-500/40 text-xs text-teal-200 flex items-center gap-2">
-              <span className="material-symbols-outlined text-sm text-teal-400">check_circle</span>
-              <span>Active recall recorded! Your conceptual grasp is reinforced for the upcoming practice.</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ========================================================================= */}
       {/* KEY TAKEAWAYS */}
       {/* ========================================================================= */}
       {keyTakeaways.length > 0 && (
