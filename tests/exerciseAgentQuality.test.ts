@@ -230,7 +230,8 @@ async function runTests() {
     target_concept: 'Stack',
     active_concept: 'stack',
     concept_title: 'Stack',
-    phase_intent: 'INITIAL_TARGET'
+    phase_intent: 'INITIAL_TARGET',
+    force_replay_mode: true
   });
 
   assert(Boolean(outcome.exercise), 'Generates public exercise artifact');

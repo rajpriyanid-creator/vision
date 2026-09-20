@@ -40,23 +40,37 @@ export class AnswerKeyValidator {
       const canonical = (answerKey.canonical_answer || '').trim().toLowerCase();
       const correctId = (answerKey.correct_option_id || '').trim().toUpperCase();
 
-      let matchedIndex = -1;
-      // Match by exact text or letter ID prefix (e.g. "A. Text")
+      let matchedByCanonical = false;
+      let matchedByCorrectId = false;
+
       options.forEach((opt, idx) => {
         const normOpt = opt.trim().toLowerCase();
         const letterId = String.fromCharCode(65 + idx);
-        if (
-          (canonical && (normOpt === canonical || normOpt.includes(canonical) || canonical.includes(normOpt))) ||
-          (correctId && (letterId === correctId || normOpt.startsWith(`${correctId.toLowerCase()}.`) || normOpt.startsWith(`${correctId.toLowerCase()})`)))
-        ) {
-          if (matchedIndex === -1) {
-            matchedIndex = idx;
+
+        if (canonical) {
+          if (
+            normOpt === canonical ||
+            normOpt === `${letterId.toLowerCase()}. ${canonical}` ||
+            normOpt === `${letterId.toLowerCase()}) ${canonical}` ||
+            normOpt.includes(canonical) ||
+            canonical.includes(normOpt)
+          ) {
+            matchedByCanonical = true;
+          }
+        }
+
+        if (correctId) {
+          if (letterId === correctId || normOpt.startsWith(`${correctId.toLowerCase()}.`) || normOpt.startsWith(`${correctId.toLowerCase()})`)) {
+            matchedByCorrectId = true;
           }
         }
       });
 
-      if (matchedIndex === -1 && canonical.length > 0) {
+      if (canonical && !matchedByCanonical) {
         issues.push(`Canonical answer '${answerKey.canonical_answer}' does not match any provided MCQ option.`);
+      }
+      if (correctId && !matchedByCorrectId) {
+        issues.push(`Correct option ID '${answerKey.correct_option_id}' is out of bounds for the provided options.`);
       }
     }
 
