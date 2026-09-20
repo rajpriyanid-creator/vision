@@ -48,8 +48,10 @@ export const RepairLesson: React.FC = () => {
       <div className="rounded-xl bg-gradient-to-r from-rose-950/50 via-[#0E1526] to-[#0E1526] border border-rose-500/40 p-5 sm:p-6 shadow-xl relative overflow-hidden backdrop-blur-md">
         <div className="flex items-center gap-2 mb-2">
           <span className="w-2 h-2 rounded-full bg-[#FF6B6B] animate-ping" />
-          <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#FF6B6B]">
-            Prerequisite Remediation Cycle
+          <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#FF6B6B] flex items-center gap-1.5">
+            <span>🔄 BACKWARD LOOP ACTIVE</span>
+            <span>·</span>
+            <span>Diagnostic Agent Sent Work Backward to Repair Prerequisite Gap</span>
           </span>
           <span className="text-slate-500">·</span>
           <span className="font-mono text-xs text-slate-300">Strategy: {teachingMode}</span>
