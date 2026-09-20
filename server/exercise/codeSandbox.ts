@@ -1,4 +1,29 @@
+import vm from 'node:vm';
 import { ExercisePrivateTestCase } from '../models/contracts';
+
+export interface SandboxTestCase {
+  name: string;
+  input: string;
+  expected: string;
+}
+
+export interface SandboxTestResult {
+  name: string;
+  passed: boolean;
+  input: string;
+  expected: string;
+  actual?: string;
+  error?: string;
+}
+
+export interface SandboxRunResult {
+  all_passed: boolean;
+  total_tests: number;
+  passed_tests: number;
+  test_results: SandboxTestResult[];
+  execution_error?: string;
+  timeout?: boolean;
+}
 
 export interface SandboxExecutionResult {
   passed: boolean;
@@ -21,6 +46,102 @@ export interface SandboxExecutionResult {
 }
 
 export class CodeSandbox {
+  /**
+   * Executes test cases in a sandboxed V8 context with strict timeouts.
+   */
+  static async runTests(
+    code: string,
+    testCases: SandboxTestCase[],
+    timeoutMs = 1500
+  ): Promise<SandboxRunResult> {
+    const results: SandboxTestResult[] = [];
+    let passedCount = 0;
+    let executionError: string | undefined;
+    let isTimeout = false;
+
+    // Guard dangerous Node globals
+    const cleanCode = (code || '').trim();
+    const sandboxContext: Record<string, any> = {
+      console: { log: () => {}, warn: () => {}, error: () => {} },
+      Math,
+      JSON,
+      Array,
+      Object,
+      String,
+      Number,
+      Boolean,
+      Set,
+      Map
+    };
+
+    try {
+      const script = new vm.Script(cleanCode);
+      const context = vm.createContext(sandboxContext);
+      script.runInContext(context, { timeout: timeoutMs });
+
+      for (const tc of testCases) {
+        try {
+          const evalScript = new vm.Script(tc.input);
+          const rawActual = evalScript.runInContext(context, { timeout: timeoutMs });
+          const actualStr = typeof rawActual === 'object' ? JSON.stringify(rawActual) : String(rawActual);
+          const expectedStr = String(tc.expected).trim();
+          const passed = actualStr === expectedStr || JSON.stringify(rawActual) === expectedStr;
+
+          if (passed) {
+            passedCount++;
+          }
+
+          results.push({
+            name: tc.name,
+            passed,
+            input: tc.input,
+            expected: expectedStr,
+            actual: actualStr
+          });
+        } catch (err: any) {
+          if (err.message && err.message.includes('timed out')) {
+            isTimeout = true;
+          }
+          results.push({
+            name: tc.name,
+            passed: false,
+            input: tc.input,
+            expected: tc.expected,
+            error: err.message || 'Execution error'
+          });
+        }
+      }
+    } catch (err: any) {
+      if (err.message && err.message.includes('timed out')) {
+        isTimeout = true;
+      }
+      executionError = err.message || 'Syntax/runtime compilation error';
+      // Mark remaining test cases as failed
+      for (const tc of testCases) {
+        if (!results.some(r => r.name === tc.name)) {
+          results.push({
+            name: tc.name,
+            passed: false,
+            input: tc.input,
+            expected: tc.expected,
+            error: executionError
+          });
+        }
+      }
+    }
+
+    const allPassed = testCases.length > 0 && passedCount === testCases.length && !executionError && !isTimeout;
+
+    return {
+      all_passed: allPassed,
+      total_tests: testCases.length,
+      passed_tests: passedCount,
+      test_results: results,
+      execution_error: executionError,
+      timeout: isTimeout
+    };
+  }
+
   /**
    * Evaluates untrusted student code against private authoritative test cases.
    * NEVER trusts client-submitted test results or client claim of passed: true.

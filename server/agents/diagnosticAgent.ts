@@ -67,9 +67,26 @@ Output strictly JSON:
 
         // Sanitize proposed prerequisite against DAG
         let suspected = parsed.suspected_prerequisite || null;
-        if (suspected && !allAncestors.includes(suspected) && !availablePrereqs.includes(suspected)) {
-          // LLM hallucinated an unknown prerequisite! Reject it.
-          suspected = null;
+        if (suspected) {
+          const suspectedStr = String(suspected).trim().toLowerCase();
+          const normKey = suspectedStr.replace(/[^a-z0-9_]/g, '_');
+          const allCandidates = [...availablePrereqs, ...allAncestors];
+          const matched = allCandidates.find(
+            (c) =>
+              c.toLowerCase() === suspectedStr ||
+              c.toLowerCase() === normKey ||
+              course_context.concept_titles[c]?.toLowerCase() === suspectedStr ||
+              course_context.concept_titles[c]?.toLowerCase().includes(suspectedStr)
+          );
+          if (matched) {
+            suspected = matched;
+          } else if (availablePrereqs.length > 0) {
+            suspected = availablePrereqs[0];
+          } else {
+            suspected = null;
+          }
+        } else if (parsed.category === 'prerequisite_gap' && availablePrereqs.length > 0) {
+          suspected = availablePrereqs[0];
         }
 
         return {

@@ -5,7 +5,9 @@
 
 export interface DAGValidationReport {
   is_valid: boolean;
+  has_cycle?: boolean;
   cycles: string[][];
+  cycle_nodes?: string[];
   self_loops: string[];
   unknown_references: Array<{ from: string; to: string }>;
   unreachable_nodes: string[];
@@ -19,7 +21,9 @@ export class GraphValidator {
   static validate(dag: Record<string, string[]>, targetNodeId?: string): DAGValidationReport {
     const report: DAGValidationReport = {
       is_valid: true,
+      has_cycle: false,
       cycles: [],
+      cycle_nodes: [],
       self_loops: [],
       unknown_references: [],
       unreachable_nodes: [],
@@ -33,6 +37,8 @@ export class GraphValidator {
       for (const p of prereqs) {
         if (p === node) {
           report.self_loops.push(node);
+          report.has_cycle = true;
+          report.cycle_nodes?.push(node);
           report.errors.push(`Self-loop detected on node '${node}'`);
         }
         if (!nodeIds.has(p)) {
@@ -57,6 +63,12 @@ export class GraphValidator {
         } else if (recStack.has(n)) {
           const cyclePath = [...path.slice(path.indexOf(n)), n];
           report.cycles.push(cyclePath);
+          report.has_cycle = true;
+          for (const node of cyclePath) {
+            if (!report.cycle_nodes?.includes(node)) {
+              report.cycle_nodes?.push(node);
+            }
+          }
           report.errors.push(`Cycle detected: ${cyclePath.join(' -> ')}`);
         }
       }
@@ -72,6 +84,13 @@ export class GraphValidator {
 
     report.is_valid = report.self_loops.length === 0 && report.unknown_references.length === 0 && report.cycles.length === 0;
     return report;
+  }
+
+  /**
+   * Alias for validate with comprehensive cycle metadata
+   */
+  static validateDAG(dag: Record<string, string[]>, targetNodeId?: string): DAGValidationReport {
+    return this.validate(dag, targetNodeId);
   }
 
   /**
@@ -98,6 +117,13 @@ export class GraphValidator {
   }
 
   /**
+   * Alias for getAncestors
+   */
+  static getReachableAncestors(dag: Record<string, string[]>, startNode: string): Set<string> {
+    return this.getAncestors(dag, startNode);
+  }
+
+  /**
    * Determines if candidatePrereq is a legitimate prerequisite of concept in the DAG.
    */
   static isPrerequisiteOf(dag: Record<string, string[]>, concept: string, candidatePrereq: string): boolean {
@@ -106,6 +132,13 @@ export class GraphValidator {
     if (direct.includes(candidatePrereq)) return true;
     const ancestors = this.getAncestors(dag, concept);
     return ancestors.has(candidatePrereq);
+  }
+
+  /**
+   * Alias for isPrerequisiteOf
+   */
+  static isValidPrerequisiteEdge(dag: Record<string, string[]>, concept: string, candidatePrereq: string): boolean {
+    return this.isPrerequisiteOf(dag, concept, candidatePrereq);
   }
 
   /**
