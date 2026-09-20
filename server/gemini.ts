@@ -24,7 +24,7 @@ export function getGemini(): GoogleGenAI | null {
   return aiInstance;
 }
 
-const SUPPORTED_MODELS = ['gemini-3.6-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+const SUPPORTED_MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
 
 export async function checkGeminiHealth(): Promise<{
   live: boolean;
@@ -48,7 +48,7 @@ export async function checkGeminiHealth(): Promise<{
     return {
       live: lastModelLiveStatus,
       status: lastModelLiveStatus ? 'live' : 'degraded',
-      model: 'gemini-3.6-flash',
+      model: SUPPORTED_MODELS[0],
       error: lastModelError
     };
   }
@@ -68,7 +68,7 @@ export async function checkGeminiHealth(): Promise<{
       setTimeout(() => reject(new Error('Model health check timed out')), 5000)
     );
     const probePromise = ai.models.generateContent({
-      model: 'gemini-3.6-flash',
+      model: SUPPORTED_MODELS[0],
       contents: 'ping'
     });
 
@@ -79,16 +79,19 @@ export async function checkGeminiHealth(): Promise<{
     return {
       live: true,
       status: 'live',
-      model: 'gemini-3.6-flash'
+      model: SUPPORTED_MODELS[0]
     };
   } catch (err: any) {
     lastModelLiveStatus = false;
-    lastModelError = err?.message || 'Failed to contact model API';
+    const isQuota = err?.status === 429 || (err?.message && (err.message.includes('429') || err.message.includes('Quota') || err.message.includes('RESOURCE_EXHAUSTED')));
+    lastModelError = isQuota
+      ? 'Gemini API free tier rate-limit/quota exceeded (safe fallback active)'
+      : (err?.message || 'Failed to contact model API');
     lastModelCheckTime = now;
     return {
       live: false,
       status: 'degraded',
-      model: 'gemini-3.6-flash',
+      model: SUPPORTED_MODELS[0],
       error: lastModelError
     };
   }
@@ -112,7 +115,7 @@ export function getGeminiStatus(): {
   return {
     live: lastModelLiveStatus,
     status: lastModelLiveStatus ? 'live' : (lastModelError ? 'degraded' : 'offline'),
-    model: 'gemini-3.6-flash',
+    model: SUPPORTED_MODELS[0],
     error: lastModelError
   };
 }
@@ -148,9 +151,15 @@ export async function generateWithGemini(
         return result;
       }
     } catch (e: any) {
-      lastModelError = e instanceof Error ? e.message : String(e);
+      const isQuota = e?.status === 429 || (e?.message && (e.message.includes('429') || e.message.includes('Quota') || e.message.includes('RESOURCE_EXHAUSTED')));
+      if (isQuota) {
+        lastModelError = `Gemini API quota/rate limit reached on ${modelName}`;
+        console.warn(`[Gemini API] Quota/rate-limit on ${modelName}, attempting fallback.`);
+      } else {
+        lastModelError = e instanceof Error ? e.message : String(e);
+        console.warn(`[Gemini API] Call with model ${modelName} failed:`, lastModelError);
+      }
       lastModelLiveStatus = false;
-      console.warn(`Gemini call with model ${modelName} failed:`, lastModelError);
     }
   }
 

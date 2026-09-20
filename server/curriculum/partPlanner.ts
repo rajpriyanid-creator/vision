@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { generateWithGemini } from '../gemini';
 import { toId } from '../engine';
 
 export interface LearningPart {
@@ -25,11 +25,6 @@ export interface VisionRoadmapPlan {
 }
 
 export class PartPlanner {
-  private static getAI(): GoogleGenAI | null {
-    if (!process.env.GEMINI_API_KEY) return null;
-    return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  }
-
   /**
    * Generates a structured N-part learning roadmap with a clear vision
    * for mastering the target concept.
@@ -42,11 +37,9 @@ export class PartPlanner {
     learningGoal = 'understand'
   ): Promise<VisionRoadmapPlan> {
     const totalParts = Math.min(Math.max(Number(nParts) || 4, 2), 6);
-    const ai = this.getAI();
 
-    if (ai) {
-      try {
-        const prompt = `You are the Master Curriculum Architect for an advanced adaptive learning engine called VISION.
+    try {
+      const prompt = `You are the Master Curriculum Architect for an advanced adaptive learning engine called VISION.
 The student wants to master: "${targetConcept}" in the subject "${subject}".
 Learner Level: ${learnerLevel}
 Learning Goal: ${learningGoal}
@@ -80,16 +73,10 @@ Return strictly valid JSON:
   ]
 }`;
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.6-flash',
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            temperature: 0.2
-          }
-        });
-
-        const raw = response.text ? JSON.parse(response.text) : null;
+      const aiText = await generateWithGemini(prompt);
+      if (aiText) {
+        const cleaned = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const raw = JSON.parse(cleaned);
         if (raw && Array.isArray(raw.parts) && raw.parts.length > 0) {
           const formattedParts: LearningPart[] = raw.parts.map((p: any, idx: number) => ({
             part_number: idx + 1,
@@ -114,9 +101,9 @@ Return strictly valid JSON:
             parts: formattedParts
           };
         }
-      } catch (err) {
-        console.warn('AI part planner fallback:', err);
       }
+    } catch {
+      // Deterministic fallback generator below
     }
 
     // Deterministic fallback generator
