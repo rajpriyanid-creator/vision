@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 
 let aiInstance: GoogleGenAI | null = null;
 let lastModelLiveStatus = false;
@@ -14,7 +14,14 @@ export function getGemini(): GoogleGenAI | null {
   }
   if (!aiInstance) {
     try {
-      aiInstance = new GoogleGenAI({ apiKey });
+      aiInstance = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build'
+          }
+        }
+      });
     } catch (e: any) {
       lastModelLiveStatus = false;
       lastModelError = e?.message || 'Failed to initialize GoogleGenAI client';
@@ -133,13 +140,20 @@ export async function generateWithGemini(
   for (const modelName of SUPPORTED_MODELS) {
     try {
       const timeoutPromise = new Promise<null>((_, reject) =>
-        setTimeout(() => reject(new Error(`Timeout with model ${modelName}`)), 12000)
+        setTimeout(() => reject(new Error(`Timeout with model ${modelName}`)), 25000)
       );
       const generatePromise = (async () => {
+        const config: any = {};
+        if (systemInstruction) {
+          config.systemInstruction = systemInstruction;
+        }
+        if (modelName === 'gemini-3.1-flash-lite') {
+          config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+        }
         const response = await ai.models.generateContent({
           model: modelName,
           contents: prompt,
-          config: systemInstruction ? { systemInstruction } : undefined
+          config: Object.keys(config).length > 0 ? config : undefined
         });
         return response.text?.trim() || null;
       })();
